@@ -6,7 +6,7 @@ from torch.utils.data.sampler import WeightedRandomSampler
 from torchvision import transforms
 from sklearn.model_selection import train_test_split
 
-from datasets import Fitz17kDataset
+from .datasets import Fitz17kDataset
 
 
 def train_val_split_fitz17k(Generated_csv_path, holdout_set="random_holdout"):
