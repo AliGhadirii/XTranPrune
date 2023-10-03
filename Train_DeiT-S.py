@@ -13,6 +13,7 @@ import copy
 from sklearn.metrics import balanced_accuracy_score
 
 from Datasets.dataloaders import get_fitz17k_dataloaders
+from Models.transformers import DeiT_S
 from Utils.Misc_utils import set_seeds
 
 
@@ -32,17 +33,9 @@ def main(config):
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )
-
-    for batch in dataloaders["train"]:
-        # Send inputs and labels to the device
-        inputs = batch["image"]
-        labels = batch["high"]
-        attrs = batch["fitzpatrick"]
-
-        print(f"inputs: {inputs.shape}")
-        print(f"labels: {labels}")
-        print(f"attrs: {attrs}")
-        break
+    model = DeiT_S(config)
+    model = model.to(device)
+    print(model)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ default:
   n_epochs: 20
   pretrained: True
   level: high
+  n_classes: 3
   binary_subgroup: True
 FairPrune:
   batch_size: 2
