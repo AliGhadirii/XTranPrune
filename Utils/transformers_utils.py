@@ -85,3 +85,25 @@ def download_weights(backbone_type, patch_size, pretrained_type):
         if "head.bias" in chpt:
             del chpt["head.bias"]
     return chpt
+
+
+def get_params_groups(model):
+    """
+    FROM: https://github.com/facebookresearch/dino/blob/main/utils.py
+    It filters-out the no-grad params and it excludes weight_decay from all non-weight / non-bias tensors
+    It will return 2 groups 0: regularized 1: not_regularized
+    """
+    regularized = []
+    not_regularized = []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        # we do not regularize biases nor Norm parameters
+        if name.endswith(".bias") or len(param.shape) == 1:
+            not_regularized.append(param)
+        else:
+            regularized.append(param)
+    return [
+        {"params": regularized},
+        {"params": not_regularized, "weight_decay": 0.0},
+    ]
