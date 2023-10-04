@@ -22,7 +22,6 @@ from functools import partial
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast
 from Utils.transformers_utils import *
 
 
@@ -477,17 +476,14 @@ def vit_base(patch_size=16, img_size=[224], pretrained=False, **kwargs):
 class DeiT_S(nn.Module):
     def __init__(self, config, patch_size=16, img_size=[224], pretrained=True):
         super().__init__()
-        self.backbone = deit_small(
-            patch_size=16, img_size=[224], pretrained=config["default"]["pretrained"]
-        )
+        self.backbone = deit_small(patch_size=16, img_size=[224], pretrained=True)
         self.backbone.fc = Identity()
         self.fc = nn.Linear(self.backbone.embed_dim, config["default"]["n_classes"])
 
     def forward(self, x, return_embedding=False):
-        with autocast(self.use_mixed_precision):
-            x_emb = self.backbone(x)
-            x = self.fc(x_emb)
-            if return_embedding:
-                return x, x_emb
-            else:
-                return x
+        x_emb = self.backbone(x)
+        x = self.fc(x_emb)
+        if return_embedding:
+            return x, x_emb
+        else:
+            return x
