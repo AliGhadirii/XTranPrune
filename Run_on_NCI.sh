@@ -13,10 +13,10 @@
 source /scratch/jk87/ag4694/miniconda3/bin/activate
 module load cuda/11.7.0
 module load cudnn/8.6.0-cuda11
-conda activate FairPrune
+conda activate SkinFormer_env
 
 # Set python path
-export PYTHONPATH="/home/561/ag4694/Repos/FairPrune/:$PYTHONPATH"
+export PYTHONPATH="/home/561/ag4694/Repos/SkinFormer/:$PYTHONPATH"
 
 # Call the script to run
-python FairPrune.py --config Fitz17k_configs_NCI.yml
+python Train_DeiT-B_LRP.py --config configs_NCI.yml

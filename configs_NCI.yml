@@ -1,0 +1,12 @@
+---
+seed: 42
+output_folder_path: /scratch/jk87/ag4694/Outputs/SkinFormer/LRP/
+root_image_dir: /scratch/jk87/ag4694/Datasets/Fitz17k/Images/
+Generated_csv_path: /scratch/jk87/ag4694/Datasets/Fitz17k/FairPrune/fitapatrick17k_known_code.csv
+num_workers: 1
+default:
+  batch_size: 64
+  n_epochs: 50
+  pretrained: True
+  level: high
+  binary_subgroup: True
