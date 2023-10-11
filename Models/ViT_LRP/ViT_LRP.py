@@ -355,6 +355,8 @@ class VisionTransformer(nn.Module):
             # with a single Linear layer as head, the param count within rounding of paper
             self.head = Linear(self.embed_dim, num_classes)
 
+        self.apply(self._init_weights)
+
     def save_inp_grad(self, grad):
         self.inp_grad = grad
 
