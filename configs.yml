@@ -1,6 +1,7 @@
 ---
 seed: 42
-output_folder_path: /content/drive/MyDrive/SkinFormer/Outputs/
+output_folder_path: /content/drive/MyDrive/SkinFormer/Outputs/LRP/
+# output_folder_path: /content/drive/MyDrive/SkinFormer/Outputs/
 #output_folder_path: /content/drive/MyDrive/UNSW/SkinFormer/Outputs/
 root_image_dir: /content/drive/MyDrive/Datasets/Fitz17k/Images/
 #root_image_dir: /content/drive/MyDrive/UNSW/Datasets/Fitz17k/Images/
@@ -12,5 +13,4 @@ default:
   n_epochs: 40
   pretrained: True
   level: high
-  n_classes: 3
   binary_subgroup: True
