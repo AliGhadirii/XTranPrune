@@ -295,6 +295,8 @@ class VisionTransformer(nn.Module):
     ):
         super().__init__()
         self.num_classes = num_classes
+        self.mlp_head = mlp_head
+        self.mlp_ratio = mlp_ratio
         self.num_features = (
             self.embed_dim
         ) = embed_dim  # num_features for consistency with other models
@@ -341,6 +343,17 @@ class VisionTransformer(nn.Module):
         self.add = Add()
 
         self.inp_grad = None
+
+    def change_head(self, num_classes):
+        self.num_classes = num_classes
+        if self.mlp_head:
+            # paper diagram suggests 'MLP head', but results in 4M extra parameters vs paper
+            self.head = Mlp(
+                self.embed_dim, int(self.embed_dim * self.mlp_ratio), num_classes
+            )
+        else:
+            # with a single Linear layer as head, the param count within rounding of paper
+            self.head = Linear(self.embed_dim, num_classes)
 
     def save_inp_grad(self, grad):
         self.inp_grad = grad
@@ -523,7 +536,6 @@ def deit_base_patch16_224(pretrained=False, num_classes=3, **kwargs):
         num_heads=12,
         mlp_ratio=4,
         qkv_bias=True,
-        num_classes=num_classes,
         **kwargs,
     )
     model.default_cfg = _cfg(num_classes=num_classes)
@@ -534,4 +546,5 @@ def deit_base_patch16_224(pretrained=False, num_classes=3, **kwargs):
             check_hash=True,
         )
         model.load_state_dict(checkpoint["model"])
+    model.change_head(num_classes)
     return model

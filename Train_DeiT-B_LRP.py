@@ -38,7 +38,7 @@ def train_model(
     best_acc = 0
 
     best_model_path = os.path.join(
-        config["output_folder_path"], "DeiT-S_checkpoint_BASE.pth"
+        config["output_folder_path"], "DeiT-B_LRP_checkpoint_BASE.pth"
     )
 
     if os.path.isfile(best_model_path):
@@ -230,57 +230,57 @@ def main(config):
     model = model.to(device)
     print(model)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(get_params_groups(model), lr=1e-4, weight_decay=1e-5)
-    scheduler = LinearWarmup(
-        optimizer,
-        max_lr=1e-4,
-        eta_min=1e-6,
-        warmup_epochs=0,
-        warmup_iters=1000,
-        steps_per_epoch=len(dataloaders["train"]),
-    )
+    # criterion = nn.CrossEntropyLoss()
+    # optimizer = optim.Adam(get_params_groups(model), lr=1e-4, weight_decay=1e-5)
+    # scheduler = LinearWarmup(
+    #     optimizer,
+    #     max_lr=1e-4,
+    #     eta_min=1e-6,
+    #     warmup_epochs=0,
+    #     warmup_iters=1000,
+    #     steps_per_epoch=len(dataloaders["train"]),
+    # )
 
-    model, training_results, validation_results = train_model(
-        dataloaders,
-        dataset_sizes,
-        num_classes,
-        model,
-        criterion,
-        optimizer,
-        scheduler,
-        device,
-        config,
-    )
+    # model, training_results, validation_results = train_model(
+    #     dataloaders,
+    #     dataset_sizes,
+    #     num_classes,
+    #     model,
+    #     criterion,
+    #     optimizer,
+    #     scheduler,
+    #     device,
+    #     config,
+    # )
 
-    num_epoch = config["default"]["n_epochs"]
-    training_results.to_csv(
-        os.path.join(
-            config["output_folder_path"],
-            f"training_results_Resnet18_{num_epoch}_random_holdout_BASE.csv",
-        ),
-        index=False,
-    )
-    validation_results.to_csv(
-        os.path.join(
-            config["output_folder_path"],
-            f"all_validation_results_Resnet18_{num_epoch}_random_holdout_BASE.csv",
-        ),
-        index=False,
-    )
+    # num_epoch = config["default"]["n_epochs"]
+    # training_results.to_csv(
+    #     os.path.join(
+    #         config["output_folder_path"],
+    #         f"training_results_DiT_B_LRP_{num_epoch}_random_holdout_BASE.csv",
+    #     ),
+    #     index=False,
+    # )
+    # validation_results.to_csv(
+    #     os.path.join(
+    #         config["output_folder_path"],
+    #         f"all_validation_results_DiT_B_LRP_{num_epoch}_random_holdout_BASE.csv",
+    #     ),
+    #     index=False,
+    # )
 
-    val_metrics, _ = eval_model(
-        model,
-        dataloaders,
-        dataset_sizes,
-        device,
-        config["default"]["level"],
-        "BASE",
-        config,
-        save_preds=True,
-    )
+    # val_metrics, _ = eval_model(
+    #     model,
+    #     dataloaders,
+    #     dataset_sizes,
+    #     device,
+    #     config["default"]["level"],
+    #     "BASE",
+    #     config,
+    #     save_preds=True,
+    # )
 
-    print(val_metrics)
+    # print(val_metrics)
 
 
 if __name__ == "__main__":
