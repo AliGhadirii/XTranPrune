@@ -9,7 +9,7 @@ Generated_csv_path: /content/drive/MyDrive/Datasets/Fitz17k/SkinFormer/fitapatri
 num_workers: 1
 default:
   batch_size: 64
-  n_epochs: 20
+  n_epochs: 40
   pretrained: True
   level: high
   n_classes: 3
