@@ -3,6 +3,7 @@ seed: 42
 output_folder_path: /scratch/jk87/ag4694/Outputs/SkinFormer/LRP/
 root_image_dir: /scratch/jk87/ag4694/Datasets/Fitz17k/Images/
 Generated_csv_path: /scratch/jk87/ag4694/Datasets/Fitz17k/FairPrune/fitapatrick17k_known_code.csv
+PreTrained_path: /scratch/jk87/ag4694/PreTrained/deit_base_patch16_224-b5f2ef4d.pth
 num_workers: 1
 default:
   batch_size: 64

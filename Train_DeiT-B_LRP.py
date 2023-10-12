@@ -225,7 +225,7 @@ def main(config):
         num_workers=1,
     )
     model = deit_base_patch16_224(
-        pretrained=config["default"]["pretrained"], num_classes=num_classes
+        pretrained=config["default"]["pretrained"], num_classes=num_classes, pretrained_path=config["PreTrained_path"]
     )
     model = model.to(device)
     print(model)

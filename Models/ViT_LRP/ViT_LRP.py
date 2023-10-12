@@ -530,7 +530,7 @@ def vit_large_patch16_224(pretrained=False, **kwargs):
     return model
 
 
-def deit_base_patch16_224(pretrained=False, num_classes=3, **kwargs):
+def deit_base_patch16_224(pretrained=False, num_classes=3, pretrained_path=None,**kwargs):
     model = VisionTransformer(
         patch_size=16,
         embed_dim=768,
@@ -542,11 +542,14 @@ def deit_base_patch16_224(pretrained=False, num_classes=3, **kwargs):
     )
     model.default_cfg = _cfg(num_classes=num_classes)
     if pretrained:
-        checkpoint = torch.hub.load_state_dict_from_url(
-            url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
-            map_location="cpu",
-            check_hash=True,
-        )
+        if pretrained_path:
+            checkpoint = torch.load(pretrained_path)
+        else:
+            checkpoint = torch.hub.load_state_dict_from_url(
+                url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
+                map_location="cpu",
+                check_hash=True,
+            )
         model.load_state_dict(checkpoint["model"])
-    model.change_head(num_classes)
+        model.change_head(num_classes)
     return model
