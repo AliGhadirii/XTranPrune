@@ -2,7 +2,7 @@
 #PBS -q gpuvolta
 #PBS -l ncpus=12
 #PBS -l ngpus=1
-#PBS -l mem=30GB
+#PBS -l mem=48GB
 #PBS -l walltime=48:00:00
 #PBS -m a
 #PBS -l wd
