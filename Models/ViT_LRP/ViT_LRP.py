@@ -4,11 +4,11 @@ Hacked together by / Copyright 2020 Ross Wightman
 import torch
 import torch.nn as nn
 from einops import rearrange
-from modules.layers_ours import *
+from .layers_ours import *
 
-from baselines.ViT.helpers import load_pretrained
-from baselines.ViT.weight_init import trunc_normal_
-from baselines.ViT.layer_helpers import to_2tuple
+from .helpers import load_pretrained
+from .weight_init import trunc_normal_
+from .layer_helpers import to_2tuple
 
 
 def _cfg(url='', **kwargs):
@@ -441,15 +441,11 @@ def deit_small_patch16_224(pretrained=False, pretrained_path=None, num_classes=3
         patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, num_classes=num_classes, qkv_bias=True, **kwargs)
     model.default_cfg = _cfg()
     if pretrained_path:
-        pass
+        checkpoint = torch.load(pretrained_path)
     else:
         checkpoint = torch.hub.load_state_dict_from_url(
             url="https://dl.fbaipublicfiles.com/deit/deit_small_patch16_224-cd65a155.pth",
             map_location="cpu", check_hash=True
         )
-        for k, v in checkpoint["model"].items():
-            print(k)
-            print(v.shape)
-            print("__________________________________")
-        # model.load_state_dict(checkpoint["model"])
+    model.load_state_dict({k: v for k, v in checkpoint["model"].items() if 'head' not in k}, strict=False)
     return model
