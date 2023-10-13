@@ -4,67 +4,52 @@ Hacked together by / Copyright 2020 Ross Wightman
 import torch
 import torch.nn as nn
 from einops import rearrange
-from .layers_ours import *
+from modules.layers_ours import *
 
-from .helpers import load_pretrained
-from .weight_init import trunc_normal_
-from .layer_helpers import to_2tuple
+from baselines.ViT.helpers import load_pretrained
+from baselines.ViT.weight_init import trunc_normal_
+from baselines.ViT.layer_helpers import to_2tuple
 
 
-def _cfg(url="", num_classes=3, **kwargs):
+def _cfg(url='', **kwargs):
     return {
-        "url": url,
-        "num_classes": num_classes,
-        "input_size": (3, 224, 224),
-        "pool_size": None,
-        "crop_pct": 0.9,
-        "interpolation": "bicubic",
-        "first_conv": "patch_embed.proj",
-        "classifier": "head",
-        **kwargs,
+        'url': url,
+        'num_classes': 1000, 'input_size': (3, 224, 224), 'pool_size': None,
+        'crop_pct': .9, 'interpolation': 'bicubic',
+        'first_conv': 'patch_embed.proj', 'classifier': 'head',
+        **kwargs
     }
 
 
 default_cfgs = {
     # patch models
-    "vit_small_patch16_224": _cfg(
-        url="https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-weights/vit_small_p16_224-15ec54c9.pth",
+    'vit_small_patch16_224': _cfg(
+        url='https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-weights/vit_small_p16_224-15ec54c9.pth',
     ),
-    "vit_base_patch16_224": _cfg(
-        url="https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-vitjx/jx_vit_base_p16_224-80ecf9dd.pth",
-        mean=(0.5, 0.5, 0.5),
-        std=(0.5, 0.5, 0.5),
+    'vit_base_patch16_224': _cfg(
+        url='https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-vitjx/jx_vit_base_p16_224-80ecf9dd.pth',
+        mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5),
     ),
-    "vit_large_patch16_224": _cfg(
-        url="https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-vitjx/jx_vit_large_p16_224-4ee7a4dc.pth",
-        mean=(0.5, 0.5, 0.5),
-        std=(0.5, 0.5, 0.5),
-    ),
+    'vit_large_patch16_224': _cfg(
+        url='https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-vitjx/jx_vit_large_p16_224-4ee7a4dc.pth',
+        mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
 }
-
 
 def compute_rollout_attention(all_layer_matrices, start_layer=0):
     # adding residual consideration
     num_tokens = all_layer_matrices[0].shape[1]
     batch_size = all_layer_matrices[0].shape[0]
-    eye = (
-        torch.eye(num_tokens)
-        .expand(batch_size, num_tokens, num_tokens)
-        .to(all_layer_matrices[0].device)
-    )
-    all_layer_matrices = [
-        all_layer_matrices[i] + eye for i in range(len(all_layer_matrices))
-    ]
+    eye = torch.eye(num_tokens).expand(batch_size, num_tokens, num_tokens).to(all_layer_matrices[0].device)
+    all_layer_matrices = [all_layer_matrices[i] + eye for i in range(len(all_layer_matrices))]
     # all_layer_matrices = [all_layer_matrices[i] / all_layer_matrices[i].sum(dim=-1, keepdim=True)
     #                       for i in range(len(all_layer_matrices))]
     joint_attention = all_layer_matrices[start_layer]
-    for i in range(start_layer + 1, len(all_layer_matrices)):
+    for i in range(start_layer+1, len(all_layer_matrices)):
         joint_attention = all_layer_matrices[i].bmm(joint_attention)
     return joint_attention
 
-
 class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, drop=0.0):
+    def __init__(self, in_features, hidden_features=None, out_features=None, drop=0.):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -90,17 +75,17 @@ class Mlp(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0.0, proj_drop=0.0):
+    def __init__(self, dim, num_heads=8, qkv_bias=False,attn_drop=0., proj_drop=0.):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
         # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
-        self.scale = head_dim**-0.5
+        self.scale = head_dim ** -0.5
 
         # A = Q*K^T
-        self.matmul1 = einsum("bhid,bhjd->bhij")
+        self.matmul1 = einsum('bhid,bhjd->bhij')
         # attn = A*V
-        self.matmul2 = einsum("bhij,bhjd->bhid")
+        self.matmul2 = einsum('bhij,bhjd->bhid')
 
         self.qkv = Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = Dropout(attn_drop)
@@ -147,7 +132,7 @@ class Attention(nn.Module):
     def forward(self, x):
         b, n, _, h = *x.shape, self.num_heads
         qkv = self.qkv(x)
-        q, k, v = rearrange(qkv, "b n (qkv h d) -> qkv b h n d", qkv=3, h=h)
+        q, k, v = rearrange(qkv, 'b n (qkv h d) -> qkv b h n d', qkv=3, h=h)
 
         self.save_v(v)
 
@@ -157,11 +142,10 @@ class Attention(nn.Module):
         attn = self.attn_drop(attn)
 
         self.save_attn(attn)
-        attn = attn.requires_grad_()
         attn.register_hook(self.save_attn_gradients)
 
         out = self.matmul2([attn, v])
-        out = rearrange(out, "b h n d -> b n (h d)")
+        out = rearrange(out, 'b h n d -> b n (h d)')
 
         out = self.proj(out)
         out = self.proj_drop(out)
@@ -170,10 +154,10 @@ class Attention(nn.Module):
     def relprop(self, cam, **kwargs):
         cam = self.proj_drop.relprop(cam, **kwargs)
         cam = self.proj.relprop(cam, **kwargs)
-        cam = rearrange(cam, "b n (h d) -> b h n d", h=self.num_heads)
+        cam = rearrange(cam, 'b n (h d) -> b h n d', h=self.num_heads)
 
         # attn = A*V
-        (cam1, cam_v) = self.matmul2.relprop(cam, **kwargs)
+        (cam1, cam_v)= self.matmul2.relprop(cam, **kwargs)
         cam1 /= 2
         cam_v /= 2
 
@@ -188,29 +172,18 @@ class Attention(nn.Module):
         cam_q /= 2
         cam_k /= 2
 
-        cam_qkv = rearrange(
-            [cam_q, cam_k, cam_v],
-            "qkv b h n d -> b n (qkv h d)",
-            qkv=3,
-            h=self.num_heads,
-        )
+        cam_qkv = rearrange([cam_q, cam_k, cam_v], 'qkv b h n d -> b n (qkv h d)', qkv=3, h=self.num_heads)
 
         return self.qkv.relprop(cam_qkv, **kwargs)
 
 
 class Block(nn.Module):
-    def __init__(
-        self, dim, num_heads, mlp_ratio=4.0, qkv_bias=False, drop=0.0, attn_drop=0.0
-    ):
+
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.):
         super().__init__()
         self.norm1 = LayerNorm(dim, eps=1e-6)
         self.attn = Attention(
-            dim,
-            num_heads=num_heads,
-            qkv_bias=qkv_bias,
-            attn_drop=attn_drop,
-            proj_drop=drop,
-        )
+            dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
         self.norm2 = LayerNorm(dim, eps=1e-6)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, drop=drop)
@@ -241,8 +214,8 @@ class Block(nn.Module):
 
 
 class PatchEmbed(nn.Module):
-    """Image to Patch Embedding"""
-
+    """ Image to Patch Embedding
+    """
     def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
         super().__init__()
         img_size = to_2tuple(img_size)
@@ -252,79 +225,43 @@ class PatchEmbed(nn.Module):
         self.patch_size = patch_size
         self.num_patches = num_patches
 
-        self.proj = Conv2d(
-            in_chans, embed_dim, kernel_size=patch_size, stride=patch_size
-        )
+        self.proj = Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
 
     def forward(self, x):
         B, C, H, W = x.shape
         # FIXME look at relaxing size constraints
-        assert (
-            H == self.img_size[0] and W == self.img_size[1]
-        ), f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+        assert H == self.img_size[0] and W == self.img_size[1], \
+            f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
         x = self.proj(x).flatten(2).transpose(1, 2)
         return x
 
     def relprop(self, cam, **kwargs):
-        cam = cam.transpose(1, 2)
-        cam = cam.reshape(
-            cam.shape[0],
-            cam.shape[1],
-            (self.img_size[0] // self.patch_size[0]),
-            (self.img_size[1] // self.patch_size[1]),
-        )
+        cam = cam.transpose(1,2)
+        cam = cam.reshape(cam.shape[0], cam.shape[1],
+                     (self.img_size[0] // self.patch_size[0]), (self.img_size[1] // self.patch_size[1]))
         return self.proj.relprop(cam, **kwargs)
 
 
 class VisionTransformer(nn.Module):
-    """Vision Transformer with support for patch or hybrid CNN input stage"""
-
-    def __init__(
-        self,
-        img_size=224,
-        patch_size=16,
-        in_chans=3,
-        num_classes=1000,
-        embed_dim=768,
-        depth=12,
-        num_heads=12,
-        mlp_ratio=4.0,
-        qkv_bias=False,
-        mlp_head=False,
-        drop_rate=0.0,
-        attn_drop_rate=0.0,
-    ):
+    """ Vision Transformer with support for patch or hybrid CNN input stage
+    """
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
+                 num_heads=12, mlp_ratio=4., qkv_bias=False, mlp_head=False, drop_rate=0., attn_drop_rate=0.):
         super().__init__()
         self.num_classes = num_classes
-        self.mlp_head = mlp_head
-        self.mlp_ratio = mlp_ratio
-        self.num_features = (
-            self.embed_dim
-        ) = embed_dim  # num_features for consistency with other models
+        self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.patch_embed = PatchEmbed(
-            img_size=img_size,
-            patch_size=patch_size,
-            in_chans=in_chans,
-            embed_dim=embed_dim,
-        )
+                img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
         num_patches = self.patch_embed.num_patches
 
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
 
-        self.blocks = nn.ModuleList(
-            [
-                Block(
-                    dim=embed_dim,
-                    num_heads=num_heads,
-                    mlp_ratio=mlp_ratio,
-                    qkv_bias=qkv_bias,
-                    drop=drop_rate,
-                    attn_drop=attn_drop_rate,
-                )
-                for i in range(depth)
-            ]
-        )
+        self.blocks = nn.ModuleList([
+            Block(
+                dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                drop=drop_rate, attn_drop=attn_drop_rate)
+            for i in range(depth)])
 
         self.norm = LayerNorm(embed_dim)
         if mlp_head:
@@ -336,8 +273,8 @@ class VisionTransformer(nn.Module):
 
         # FIXME not quite sure what the proper weight init is supposed to be,
         # normal / trunc normal w/ std == .02 similar to other Bert like transformers
-        trunc_normal_(self.pos_embed, std=0.02)  # embeddings same as weights?
-        trunc_normal_(self.cls_token, std=0.02)
+        trunc_normal_(self.pos_embed, std=.02)  # embeddings same as weights?
+        trunc_normal_(self.cls_token, std=.02)
         self.apply(self._init_weights)
 
         self.pool = IndexSelect()
@@ -345,28 +282,16 @@ class VisionTransformer(nn.Module):
 
         self.inp_grad = None
 
-    def change_head(self, num_classes):
-        self.num_classes = num_classes
-        if self.mlp_head:
-            # paper diagram suggests 'MLP head', but results in 4M extra parameters vs paper
-            self.head = Mlp(
-                self.embed_dim, int(self.embed_dim * self.mlp_ratio), num_classes
-            )
-        else:
-            # with a single Linear layer as head, the param count within rounding of paper
-            self.head = Linear(self.embed_dim, num_classes)
-
-        self.apply(self._init_weights)
-
-    def save_inp_grad(self, grad):
+    def save_inp_grad(self,grad):
         self.inp_grad = grad
 
     def get_inp_grad(self):
         return self.inp_grad
 
+
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=0.02)
+            trunc_normal_(m.weight, std=.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -375,19 +300,16 @@ class VisionTransformer(nn.Module):
 
     @property
     def no_weight_decay(self):
-        return {"pos_embed", "cls_token"}
+        return {'pos_embed', 'cls_token'}
 
     def forward(self, x):
         B = x.shape[0]
         x = self.patch_embed(x)
 
-        cls_tokens = self.cls_token.expand(
-            B, -1, -1
-        )  # stole cls_tokens impl from Phil Wang, thanks
+        cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_tokens, x), dim=1)
         x = self.add([x, self.pos_embed])
 
-        x = x.requires_grad_()
         x.register_hook(self.save_inp_grad)
 
         for blk in self.blocks:
@@ -399,14 +321,7 @@ class VisionTransformer(nn.Module):
         x = self.head(x)
         return x
 
-    def relprop(
-        self,
-        cam=None,
-        method="transformer_attribution",
-        is_ablation=False,
-        start_layer=0,
-        **kwargs,
-    ):
+    def relprop(self, cam=None,method="transformer_attribution", is_ablation=False, start_layer=0, **kwargs):
         # print(kwargs)
         # print("conservation 1", cam.sum())
         cam = self.head.relprop(cam, **kwargs)
@@ -437,7 +352,7 @@ class VisionTransformer(nn.Module):
             cam = compute_rollout_attention(attn_cams, start_layer=start_layer)
             cam = cam[:, 0, 1:]
             return cam
-
+        
         # our method, method name grad is legacy
         elif method == "transformer_attribution" or method == "grad":
             cams = []
@@ -452,7 +367,7 @@ class VisionTransformer(nn.Module):
             rollout = compute_rollout_attention(cams, start_layer=start_layer)
             cam = rollout[:, 0, 1:]
             return cam
-
+            
         elif method == "last_layer":
             cam = self.blocks[-1].attn.get_attn_cam()
             cam = cam[0].reshape(-1, cam.shape[-1], cam.shape[-1])
@@ -484,101 +399,57 @@ class VisionTransformer(nn.Module):
 
 
 def _conv_filter(state_dict, patch_size=16):
-    """convert patch embedding weight from manual patchify + linear proj to conv"""
+    """ convert patch embedding weight from manual patchify + linear proj to conv"""
     out_dict = {}
     for k, v in state_dict.items():
-        if "patch_embed.proj.weight" in k:
+        if 'patch_embed.proj.weight' in k:
             v = v.reshape((v.shape[0], 3, patch_size, patch_size))
         out_dict[k] = v
     return out_dict
 
-
 def vit_base_patch16_224(pretrained=False, **kwargs):
     model = VisionTransformer(
-        patch_size=16,
-        embed_dim=768,
-        depth=12,
-        num_heads=12,
-        mlp_ratio=4,
-        qkv_bias=True,
-        **kwargs,
-    )
-    model.default_cfg = default_cfgs["vit_base_patch16_224"]
+        patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True, **kwargs)
+    model.default_cfg = default_cfgs['vit_base_patch16_224']
     if pretrained:
         load_pretrained(
-            model,
-            num_classes=model.num_classes,
-            in_chans=kwargs.get("in_chans", 3),
-            filter_fn=_conv_filter,
-        )
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3), filter_fn=_conv_filter)
     return model
-
 
 def vit_large_patch16_224(pretrained=False, **kwargs):
     model = VisionTransformer(
-        patch_size=16,
-        embed_dim=1024,
-        depth=24,
-        num_heads=16,
-        mlp_ratio=4,
-        qkv_bias=True,
-        **kwargs,
-    )
-    model.default_cfg = default_cfgs["vit_large_patch16_224"]
+        patch_size=16, embed_dim=1024, depth=24, num_heads=16, mlp_ratio=4, qkv_bias=True, **kwargs)
+    model.default_cfg = default_cfgs['vit_large_patch16_224']
     if pretrained:
-        load_pretrained(
-            model, num_classes=model.num_classes, in_chans=kwargs.get("in_chans", 3)
+        load_pretrained(model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+def deit_base_patch16_224(pretrained=False, **kwargs):
+    model = VisionTransformer(
+        patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True, **kwargs)
+    model.default_cfg = _cfg()
+    if pretrained:
+        checkpoint = torch.hub.load_state_dict_from_url(
+            url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
+            map_location="cpu", check_hash=True
         )
+        model.load_state_dict(checkpoint["model"])
     return model
 
-
-def deit_base_patch16_224(
-    pretrained=False, num_classes=3, pretrained_path=None, **kwargs
-):
+def deit_small_patch16_224(pretrained=False, pretrained_path=None, num_classes=3,**kwargs):
     model = VisionTransformer(
-        patch_size=16,
-        embed_dim=768,
-        depth=12,
-        num_heads=12,
-        mlp_ratio=4,
-        qkv_bias=True,
-        **kwargs,
-    )
-    model.default_cfg = _cfg(num_classes=num_classes)
-    if pretrained:
-        if pretrained_path:
-            checkpoint = torch.load(pretrained_path)
-        else:
-            checkpoint = torch.hub.load_state_dict_from_url(
-                url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
-                map_location="cpu",
-                check_hash=True,
-            )
-        model.load_state_dict(checkpoint["model"])
-        model.change_head(num_classes)
-    return model
-
-
-def deit_S_patch16_224(pretrained=False, num_classes=3, pretrained_path=None, **kwargs):
-    model = VisionTransformer(
-        patch_size=16,
-        embed_dim=384,
-        depth=12,
-        num_heads=6,
-        mlp_ratio=4,
-        qkv_bias=True,
-        **kwargs,
-    )
-    model.default_cfg = _cfg(num_classes=num_classes)
-    if pretrained:
-        if pretrained_path:
-            checkpoint = torch.load(pretrained_path)
-        else:
-            checkpoint = torch.hub.load_state_dict_from_url(
-                url="https://dl.fbaipublicfiles.com/deit/deit_small_patch16_224-cd65a155.pth",
-                map_location="cpu",
-                check_hash=True,
-            )
-        model.load_state_dict(checkpoint["model"])
-        model.change_head(num_classes)
+        patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, num_classes=num_classes, qkv_bias=True, **kwargs)
+    model.default_cfg = _cfg()
+    if pretrained_path:
+        pass
+    else:
+        checkpoint = torch.hub.load_state_dict_from_url(
+            url="https://dl.fbaipublicfiles.com/deit/deit_small_patch16_224-cd65a155.pth",
+            map_location="cpu", check_hash=True
+        )
+        for k, v in checkpoint["model"].items():
+            print(k)
+            print(v.shape)
+            print("__________________________________")
+        # model.load_state_dict(checkpoint["model"])
     return model

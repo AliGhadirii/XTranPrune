@@ -2,7 +2,7 @@
 #PBS -q gpuvolta
 #PBS -l ncpus=12
 #PBS -l ngpus=1
-#PBS -l mem=48GB
+#PBS -l mem=30GB
 #PBS -l walltime=48:00:00
 #PBS -m a
 #PBS -l wd
@@ -19,4 +19,4 @@ conda activate SkinFormer_env
 export PYTHONPATH="/home/561/ag4694/Repos/SkinFormer/:$PYTHONPATH"
 
 # Call the script to run
-python Train_DeiT-B_LRP.py --config configs_NCI.yml
+python Train_DeiT-S_LRP.py --config configs_NCI.yml

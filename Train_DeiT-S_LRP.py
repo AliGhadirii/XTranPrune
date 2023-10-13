@@ -12,7 +12,7 @@ import copy
 from sklearn.metrics import balanced_accuracy_score
 
 from Datasets.dataloaders import get_fitz17k_dataloaders
-from Models.ViT_LRP.ViT_LRP import deit_S_patch16_224
+from Models.ViT_LRP.ViT_LRP import deit_small_patch16_224
 from Utils.Misc_utils import set_seeds, LinearWarmup
 from Utils.transformers_utils import get_params_groups
 from Evaluation import eval_model
@@ -224,65 +224,65 @@ def main(config):
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )
-    model = deit_S_patch16_224(
+    model = deit_small_patch16_224(
         pretrained=config["default"]["pretrained"],
-        num_classes=num_classes,
-        # pretrained_path=config["PreTrained_path"],
+        pretrained_path=None,
+        num_classes=3
     )
     model = model.to(device)
     print(model)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(get_params_groups(model), lr=1e-4, weight_decay=1e-5)
-    scheduler = LinearWarmup(
-        optimizer,
-        max_lr=1e-4,
-        eta_min=1e-6,
-        warmup_epochs=0,
-        warmup_iters=1000,
-        steps_per_epoch=len(dataloaders["train"]),
-    )
+    # criterion = nn.CrossEntropyLoss()
+    # optimizer = optim.Adam(get_params_groups(model), lr=1e-4, weight_decay=1e-5)
+    # scheduler = LinearWarmup(
+    #     optimizer,
+    #     max_lr=1e-4,
+    #     eta_min=1e-6,
+    #     warmup_epochs=0,
+    #     warmup_iters=1000,
+    #     steps_per_epoch=len(dataloaders["train"]),
+    # )
 
-    model, training_results, validation_results = train_model(
-        dataloaders,
-        dataset_sizes,
-        num_classes,
-        model,
-        criterion,
-        optimizer,
-        scheduler,
-        device,
-        config,
-    )
+    # model, training_results, validation_results = train_model(
+    #     dataloaders,
+    #     dataset_sizes,
+    #     num_classes,
+    #     model,
+    #     criterion,
+    #     optimizer,
+    #     scheduler,
+    #     device,
+    #     config,
+    # )
 
-    num_epoch = config["default"]["n_epochs"]
-    training_results.to_csv(
-        os.path.join(
-            config["output_folder_path"],
-            f"training_results_DiT_B_LRP_{num_epoch}_random_holdout_BASE.csv",
-        ),
-        index=False,
-    )
-    validation_results.to_csv(
-        os.path.join(
-            config["output_folder_path"],
-            f"all_validation_results_DiT_B_LRP_{num_epoch}_random_holdout_BASE.csv",
-        ),
-        index=False,
-    )
+    # num_epoch = config["default"]["n_epochs"]
+    # training_results.to_csv(
+    #     os.path.join(
+    #         config["output_folder_path"],
+    #         f"training_results_DiT_B_LRP_{num_epoch}_random_holdout_BASE.csv",
+    #     ),
+    #     index=False,
+    # )
+    # validation_results.to_csv(
+    #     os.path.join(
+    #         config["output_folder_path"],
+    #         f"all_validation_results_DiT_B_LRP_{num_epoch}_random_holdout_BASE.csv",
+    #     ),
+    #     index=False,
+    # )
 
-    val_metrics, _ = eval_model(
-        model,
-        dataloaders,
-        dataset_sizes,
-        device,
-        config["default"]["level"],
-        "BASE",
-        config,
-        save_preds=True,
-    )
+    # val_metrics, _ = eval_model(
+    #     model,
+    #     dataloaders,
+    #     dataset_sizes,
+    #     device,
+    #     config["default"]["level"],
+    #     "BASE",
+    #     config,
+    #     save_preds=True,
+    # )
 
-    print(val_metrics)
+    # print(val_metrics)
 
 
 if __name__ == "__main__":
