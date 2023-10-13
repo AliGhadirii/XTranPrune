@@ -12,7 +12,7 @@ import copy
 from sklearn.metrics import balanced_accuracy_score
 
 from Datasets.dataloaders import get_fitz17k_dataloaders
-from Models.ViT_LRP.ViT_LRP import deit_base_patch16_224
+from Models.ViT_LRP.ViT_LRP import deit_S_patch16_224
 from Utils.Misc_utils import set_seeds, LinearWarmup
 from Utils.transformers_utils import get_params_groups
 from Evaluation import eval_model
@@ -224,8 +224,10 @@ def main(config):
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )
-    model = deit_base_patch16_224(
-        pretrained=config["default"]["pretrained"], num_classes=num_classes, pretrained_path=config["PreTrained_path"]
+    model = deit_S_patch16_224(
+        pretrained=config["default"]["pretrained"],
+        num_classes=num_classes,
+        # pretrained_path=config["PreTrained_path"],
     )
     model = model.to(device)
     print(model)

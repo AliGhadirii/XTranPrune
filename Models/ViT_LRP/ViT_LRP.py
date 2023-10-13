@@ -157,6 +157,7 @@ class Attention(nn.Module):
         attn = self.attn_drop(attn)
 
         self.save_attn(attn)
+        attn = attn.requires_grad_()
         attn.register_hook(self.save_attn_gradients)
 
         out = self.matmul2([attn, v])
@@ -386,6 +387,7 @@ class VisionTransformer(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
         x = self.add([x, self.pos_embed])
 
+        x = x.requires_grad_()
         x.register_hook(self.save_inp_grad)
 
         for blk in self.blocks:
@@ -530,7 +532,9 @@ def vit_large_patch16_224(pretrained=False, **kwargs):
     return model
 
 
-def deit_base_patch16_224(pretrained=False, num_classes=3, pretrained_path=None,**kwargs):
+def deit_base_patch16_224(
+    pretrained=False, num_classes=3, pretrained_path=None, **kwargs
+):
     model = VisionTransformer(
         patch_size=16,
         embed_dim=768,
@@ -547,6 +551,31 @@ def deit_base_patch16_224(pretrained=False, num_classes=3, pretrained_path=None,
         else:
             checkpoint = torch.hub.load_state_dict_from_url(
                 url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
+                map_location="cpu",
+                check_hash=True,
+            )
+        model.load_state_dict(checkpoint["model"])
+        model.change_head(num_classes)
+    return model
+
+
+def deit_S_patch16_224(pretrained=False, num_classes=3, pretrained_path=None, **kwargs):
+    model = VisionTransformer(
+        patch_size=16,
+        embed_dim=384,
+        depth=12,
+        num_heads=6,
+        mlp_ratio=4,
+        qkv_bias=True,
+        **kwargs,
+    )
+    model.default_cfg = _cfg(num_classes=num_classes)
+    if pretrained:
+        if pretrained_path:
+            checkpoint = torch.load(pretrained_path)
+        else:
+            checkpoint = torch.hub.load_state_dict_from_url(
+                url="https://dl.fbaipublicfiles.com/deit/deit_small_patch16_224-cd65a155.pth",
                 map_location="cpu",
                 check_hash=True,
             )
