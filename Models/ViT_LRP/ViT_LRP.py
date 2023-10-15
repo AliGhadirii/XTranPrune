@@ -142,7 +142,8 @@ class Attention(nn.Module):
         attn = self.attn_drop(attn)
 
         self.save_attn(attn)
-        attn.register_hook(self.save_attn_gradients)
+        if attn.requires_grad:
+            attn.register_hook(self.save_attn_gradients)
 
         out = self.matmul2([attn, v])
         out = rearrange(out, 'b h n d -> b n (h d)')
@@ -310,7 +311,8 @@ class VisionTransformer(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
         x = self.add([x, self.pos_embed])
 
-        x.register_hook(self.save_inp_grad)
+        if x.requires_grad:
+            x.register_hook(self.save_inp_grad)
 
         for blk in self.blocks:
             x = blk(x)
