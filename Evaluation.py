@@ -17,6 +17,7 @@ def eval_model(
     model_type,
     config,
     save_preds=False,
+    binary_fitz_given=False,
 ):
     model = model.eval()
     prediction_list = []
@@ -127,18 +128,46 @@ def eval_model(
             f"\n Final Validation results for {model_type}: Accuracy: {acc}  Balanced Accuracy: {balanced_acc} \n"
         )
 
-    # calculating the metrics (binary subgroup)
-    metrics_binary_SA = cal_metrics(df_preds, type_indices=[0, 1], is_binary=False)
-    
-    # calculating the metrics
-    df_main = pd.read_csv(config["Generated_csv_path"])
-    df_merged = df_preds.merge(df_main, left_on="hasher", right_on="hasher")[
-        ["hasher", "label_x", "fitzpatrick_y", "prediction_probability", "prediction"]
-    ]
-    df_merged.rename(
-        columns={"label_x": "label", "fitzpatrick_y": "fitzpatrick"}, inplace=True
-    )
+    if binary_fitz_given:
+        # calculating the metrics (binary subgroup)
+        metrics_binary_SA = cal_metrics(df_preds, type_indices=[0, 1], is_binary=False)
 
-    metrics = cal_metrics(df_merged, type_indices=[0, 1, 2, 3, 4, 5], is_binary=False)
+        # calculating the metrics
+        df_main = pd.read_csv(config["Generated_csv_path"])
+        df_merged = df_preds.merge(df_main, left_on="hasher", right_on="hasher")[
+            [
+                "hasher",
+                "label_x",
+                "fitzpatrick_y",
+                "prediction_probability",
+                "prediction",
+            ]
+        ]
+        df_merged.rename(
+            columns={"label_x": "label", "fitzpatrick_y": "fitzpatrick"}, inplace=True
+        )
 
-    return metrics, metrics_binary_SA, df_merged
+        metrics = cal_metrics(
+            df_merged, type_indices=[0, 1, 2, 3, 4, 5], is_binary=False
+        )
+
+        return metrics, metrics_binary_SA, df_merged
+
+    else:  # 6-value fitzpatrick is given
+        # calculating the metrics
+        metrics = cal_metrics(
+            df_preds, type_indices=[0, 1, 2, 3, 4, 5], is_binary=False
+        )
+        df_orig = df_preds.copy()
+
+        # calculating the metrics (binary subgroup)
+        def map_fitzpatrick(value):
+            return 0 if value in [1, 2, 3] else 1
+
+        df_preds["fitzpatrick"] = df_preds["fitzpatrick"].apply(
+            lambda x: map_fitzpatrick(x)
+        )
+
+        metrics_binary_SA = cal_metrics(df_preds, type_indices=[0, 1], is_binary=False)
+
+        return metrics, metrics_binary_SA, df_orig
