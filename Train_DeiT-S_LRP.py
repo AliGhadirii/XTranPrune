@@ -57,6 +57,8 @@ def train_model(
         print("Epoch {}/{}".format(epoch, config["default"]["n_epochs"] - 1))
         print("-" * 20)
 
+        since_epoch = time.time()
+        
         # Each epoch has a training and validation phase
         for phase in ["train", "val"]:
             # Set the model to the training mode
@@ -71,10 +73,6 @@ def train_model(
             running_loss = 0.0
             running_corrects = 0
             running_balanced_acc_sum = 0
-            probs_mat = np.zeros((dataset_sizes[phase], num_classes))
-            preds_vec = np.zeros((dataset_sizes[phase],))
-            labels_vec = np.zeros((dataset_sizes[phase],))
-            fitz = np.zeros(dataset_sizes[phase])
             cnt = 0
 
             print(f"Current phase: {phase}")
@@ -83,10 +81,8 @@ def train_model(
                 # Send inputs and labels to the device
                 inputs = batch["image"].to(device)
                 labels = batch["high"]
-                attrs = batch["fitzpatrick"]
 
                 labels = torch.from_numpy(np.asarray(labels)).to(device)
-                attrs = torch.from_numpy(np.asarray(attrs)).to(device)
 
                 # Zero the gradients
                 optimizer.zero_grad()
@@ -98,19 +94,6 @@ def train_model(
                     _, preds = torch.max(outputs, 1)
 
                     loss = criterion(outputs, labels)
-
-                    probs_mat[cnt * batch_size : (cnt + 1) * batch_size, :] = (
-                        outputs.cpu().detach().numpy()
-                    )
-                    preds_vec[cnt * batch_size : (cnt + 1) * batch_size] = (
-                        preds.cpu().detach().numpy()
-                    )
-                    labels_vec[cnt * batch_size : (cnt + 1) * batch_size] = (
-                        labels.cpu().detach().numpy()
-                    )
-                    fitz[cnt * batch_size : (cnt + 1) * batch_size] = (
-                        attrs.cpu().detach().numpy()
-                    )
 
                     # Backward + optimize only if in the training phase
                     if phase == "train":
@@ -172,6 +155,12 @@ def train_model(
                 }
                 torch.save(checkpoint, best_model_path)
                 print("Checkpoint saved:", best_model_path)
+        
+        time_elapsed_epoch = time.time() - since_epoch
+        print(
+        "Epoch {} completed in {:.0f}m {:.0f}s".format(
+            epoch, time_elapsed_epoch // 60, time_elapsed_epoch % 60
+        ))
 
     # Time
     time_elapsed = time.time() - since
