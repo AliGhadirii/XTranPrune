@@ -75,10 +75,11 @@ class Mlp(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False,attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, num_heads=8, qkv_bias=False,attn_drop=0., proj_drop=0., add_hook=False):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
+        self.add_hook = add_hook
         # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
         self.scale = head_dim ** -0.5
 
@@ -142,7 +143,7 @@ class Attention(nn.Module):
         attn = self.attn_drop(attn)
 
         self.save_attn(attn)
-        if attn.requires_grad:
+        if attn.requires_grad and self.add_hook:
             attn.register_hook(self.save_attn_gradients)
 
         out = self.matmul2([attn, v])
@@ -180,11 +181,11 @@ class Attention(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.):
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0., add_hook=False):
         super().__init__()
         self.norm1 = LayerNorm(dim, eps=1e-6)
         self.attn = Attention(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+            dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop, add_hook=add_hook)
         self.norm2 = LayerNorm(dim, eps=1e-6)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, drop=drop)
@@ -247,9 +248,10 @@ class VisionTransformer(nn.Module):
     """ Vision Transformer with support for patch or hybrid CNN input stage
     """
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
-                 num_heads=12, mlp_ratio=4., qkv_bias=False, mlp_head=False, drop_rate=0., attn_drop_rate=0.):
+                 num_heads=12, mlp_ratio=4., qkv_bias=False, mlp_head=False, drop_rate=0., attn_drop_rate=0., add_hook=False):
         super().__init__()
         self.num_classes = num_classes
+        self.add_hook = add_hook
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.patch_embed = PatchEmbed(
                 img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
@@ -261,7 +263,7 @@ class VisionTransformer(nn.Module):
         self.blocks = nn.ModuleList([
             Block(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
-                drop=drop_rate, attn_drop=attn_drop_rate)
+                drop=drop_rate, attn_drop=attn_drop_rate, add_hook=add_hook)
             for i in range(depth)])
 
         self.norm = LayerNorm(embed_dim)
@@ -311,7 +313,7 @@ class VisionTransformer(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
         x = self.add([x, self.pos_embed])
 
-        if x.requires_grad:
+        if x.requires_grad and self.add_hook:
             x.register_hook(self.save_inp_grad)
 
         for blk in self.blocks:
@@ -438,9 +440,9 @@ def deit_base_patch16_224(pretrained=False, **kwargs):
         model.load_state_dict(checkpoint["model"])
     return model
 
-def deit_small_patch16_224(pretrained=False, pretrained_path=None, num_classes=3,**kwargs):
+def deit_small_patch16_224(pretrained=False, pretrained_path=None, num_classes=3, add_hook=False,**kwargs):
     model = VisionTransformer(
-        patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, num_classes=num_classes, qkv_bias=True, **kwargs)
+        patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, num_classes=num_classes, qkv_bias=True, add_hook=add_hook,**kwargs)
     model.default_cfg = _cfg()
     if pretrained_path:
         checkpoint = torch.load(pretrained_path)
