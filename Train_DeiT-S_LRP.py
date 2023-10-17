@@ -38,7 +38,7 @@ def train_model(
     best_acc = 0
 
     best_model_path = os.path.join(
-        config["output_folder_path"], "DeiT-B_LRP_checkpoint_BASE.pth"
+        config["output_folder_path"], "DeiT-S_LRP_checkpoint_BASE.pth"
     )
 
     if os.path.isfile(best_model_path):
@@ -214,6 +214,7 @@ def main(config):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     set_seeds(config["seed"])
+    model_name = "DiT_S_LRP"
 
     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
@@ -259,29 +260,33 @@ def main(config):
     training_results.to_csv(
         os.path.join(
             config["output_folder_path"],
-            f"training_results_DiT_B_LRP_{num_epoch}_random_holdout_BASE.csv",
+            f"Training_log_{model_name}_{num_epoch}_random_holdout.csv",
         ),
         index=False,
     )
     validation_results.to_csv(
         os.path.join(
             config["output_folder_path"],
-            f"all_validation_results_DiT_B_LRP_{num_epoch}_random_holdout_BASE.csv",
+            f"Validation_log_{model_name}_{num_epoch}_random_holdout.csv",
         ),
         index=False,
     )
 
-    val_metrics, _ = eval_model(
+    val_metrics, val_metrics_binary_SA, _ = eval_model(
         model,
         dataloaders,
         dataset_sizes,
         device,
         config["default"]["level"],
-        "BASE",
+        model_name,
         config,
         save_preds=True,
     )
 
+    print("validation metrics (Binary Sensative Attribute):")
+    print(val_metrics_binary_SA)
+
+    print("validation metrics:")
     print(val_metrics)
 
 
