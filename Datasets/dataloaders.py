@@ -129,8 +129,8 @@ def get_fitz17k_dataloaders(
             # Map values 1, 2, 3 to 0, and 4, 5, 6 to 1
             return 0 if value in [1, 2, 3] else 1
         else:
-            # No mapping needed
-            return value
+            # No mapping needed, just start the values from 0
+            return value - 1
 
     train_df["fitzpatrick"] = train_df["fitzpatrick"].apply(
         lambda x: map_fitzpatrick(x, binary_subgroup)

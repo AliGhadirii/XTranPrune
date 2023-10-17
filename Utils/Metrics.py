@@ -16,7 +16,7 @@ def cal_metrics(df, type_indices, is_binary=False):
     for i in range(df.shape[0]):
         prediction = df.iloc[i]["prediction"]
         label = df.iloc[i]["label"]
-        type = df.iloc[i]["fitzpatrick"] - 1
+        type = df.iloc[i]["fitzpatrick"]
         labels_array[int(type), int(label)] += 1
         predictions_array[int(type), int(prediction)] += 1
         if prediction == label:

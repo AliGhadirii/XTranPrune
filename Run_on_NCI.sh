@@ -19,4 +19,4 @@ conda activate SkinFormer_env
 export PYTHONPATH="/home/561/ag4694/Repos/SkinFormer/:$PYTHONPATH"
 
 # Call the script to run
-python Train_DeiT-S_LRP.py --config configs_NCI.yml
+python Train_DeiT-S_LRP_SA.py --config configs_NCI.yml
