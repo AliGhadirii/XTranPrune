@@ -38,7 +38,7 @@ def train_model(
     best_acc = 0
 
     best_model_path = os.path.join(
-        config["output_folder_path"], "DeiT-S_LRP_checkpoint_BASE.pth"
+        config["output_folder_path"], "DeiT-S_LRP_checkpoint_6SA_detection.pth"
     )
 
     if os.path.isfile(best_model_path):
@@ -56,9 +56,8 @@ def train_model(
     for epoch in range(start_epoch, config["default"]["n_epochs"]):
         print("Epoch {}/{}".format(epoch, config["default"]["n_epochs"] - 1))
         print("-" * 20)
-
         since_epoch = time.time()
-        
+
         # Each epoch has a training and validation phase
         for phase in ["train", "val"]:
             # Set the model to the training mode
@@ -80,7 +79,7 @@ def train_model(
             for batch in dataloaders[phase]:
                 # Send inputs and labels to the device
                 inputs = batch["image"].to(device)
-                labels = batch["high"]
+                labels = batch["fitzpatrick"]
 
                 labels = torch.from_numpy(np.asarray(labels)).to(device)
 
@@ -155,12 +154,13 @@ def train_model(
                 }
                 torch.save(checkpoint, best_model_path)
                 print("Checkpoint saved:", best_model_path)
-        
+
         time_elapsed_epoch = time.time() - since_epoch
         print(
         "Epoch {} completed in {:.0f}m {:.0f}s".format(
             epoch, time_elapsed_epoch // 60, time_elapsed_epoch % 60
         ))
+        
 
     # Time
     time_elapsed = time.time() - since
@@ -203,7 +203,7 @@ def main(config):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     set_seeds(config["seed"])
-    model_name = "DiT_S_LRP"
+    model_name = "DiT_S_LRP_SA"
 
     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
@@ -214,10 +214,11 @@ def main(config):
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )
+
     model = deit_small_patch16_224(
         pretrained=config["default"]["pretrained"],
         pretrained_path=config["PreTrained_path"],
-        num_classes=3,
+        num_classes=6,
         add_hook=False
     )
     model = model.to(device)
@@ -262,22 +263,22 @@ def main(config):
         index=False,
     )
 
-    val_metrics, val_metrics_binary_SA, _ = eval_model(
-        model,
-        dataloaders,
-        dataset_sizes,
-        device,
-        config["default"]["level"],
-        model_name,
-        config,
-        save_preds=True,
-    )
+    # val_metrics, val_metrics_binary_SA, _ = eval_model(
+    #     model,
+    #     dataloaders,
+    #     dataset_sizes,
+    #     device,
+    #     config["default"]["level"],
+    #     model_name,
+    #     config,
+    #     save_preds=True,
+    # )
 
-    print("validation metrics (Binary Sensative Attribute):")
-    print(val_metrics_binary_SA)
+    # print("validation metrics (Binary Sensative Attribute):")
+    # print(val_metrics_binary_SA)
 
-    print("validation metrics:")
-    print(val_metrics)
+    # print("validation metrics:")
+    # print(val_metrics)
 
 
 if __name__ == "__main__":

@@ -10,4 +10,4 @@ default:
   n_epochs: 50
   pretrained: True
   level: high
-  binary_subgroup: True
+  binary_subgroup: False

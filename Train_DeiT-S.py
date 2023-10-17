@@ -214,6 +214,7 @@ def main(config):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     set_seeds(config["seed"])
+    model_name = "DiT_S"
 
     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
@@ -267,17 +268,21 @@ def main(config):
         index=False,
     )
 
-    val_metrics, _ = eval_model(
+    val_metrics, val_metrics_binary_SA, _ = eval_model(
         model,
         dataloaders,
         dataset_sizes,
         device,
         config["default"]["level"],
-        "BASE",
+        model_name,
         config,
         save_preds=True,
     )
 
+    print("validation metrics (Binary Sensative Attribute):")
+    print(val_metrics_binary_SA)
+
+    print("validation metrics:")
     print(val_metrics)
 
 
