@@ -8,6 +8,8 @@ import torch
 
 from Utils.Misc_utils import set_seeds
 from Datasets.Fitz17k_dataset import get_fitz17k_dataloaders
+from Models.ViT_LRP.ViT_LRP import deit_small_patch16_224
+from Utils.XAI_utils import show_explanation_sample
 
 
 def main(config):
@@ -21,138 +23,118 @@ def main(config):
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         level=config["default"]["level"],
-        binary_subgroup=config["default"]["binary_subgroup"],
+        binary_subgroup=config["prune"]["binary_subgroup"],
         holdout_set="random_holdout",
-        batch_size=config["default"]["batch_size"],
+        batch_size=config["prune"]["batch_size"],
         num_workers=1,
     )
 
-    # model = Fitz17kResNet18(num_classes=num_classes, pretrained=config["default"]["pretrained"]).to(device).eval()
-
-    model = (
-        Fitz17kResNet18(num_classes=3, pretrained=config["default"]["pretrained"])
-        .to(device)
-        .eval()
+    # load both models
+    main_model = deit_small_patch16_224(
+        pretrained=False,
+        num_classes=3,
+        add_hook=True,
+        weight_path=config["prune"]["main_br_path"],
     )
+    main_model = main_model.eval().to(device)
 
-    best_BASE_model_path = os.path.join(
-        config["output_folder_path"], "Resnet18_checkpoint_BASE.pth"
-    )
+    show_explanation_sample(main_model, dataloaders["train"])
 
-    if os.path.isfile(best_BASE_model_path):
-        print("Loading model from:", best_BASE_model_path)
-        checkpoint = torch.load(best_BASE_model_path)
-        model.load_state_dict(checkpoint["model_state_dict"])
+    # metric = nn.CrossEntropyLoss()
+    # # best_bias_metric = val_metrics[config['FairPrune']["target_bias_metric"]]
+    # best_bias_metric = 0.6394507842223532
+    # prun_iter_cnt = 0
+    # no_improvement_cnt = 0
+    # consecutive_no_improvement = 0
 
-    metric = nn.CrossEntropyLoss()
+    # while no_improvement_cnt < config["FairPrune"]["max_consecutive_no_improvement"]:
+    #     since = time.time()
 
-    # # Evaluating the BASE model
-    # val_metrics, _ = eval_model(
-    #     model,
-    #     dataloaders,
-    #     dataset_sizes,
-    #     device,
-    #     config["default"]["level"],
-    #     "BASE",
-    #     config,
-    #     save_preds=False,
-    # )
-    # print("model's bias metrics before pruning: {}".format(val_metrics[config['FairPrune']['target_bias_metric']]))
+    #     print(
+    #         f"+++++++++++++++++++++++++++++ Pruning Iteration {prun_iter_cnt} +++++++++++++++++++++++++++++"
+    #     )
+    #     model_pruned = fairprune(
+    #         model=model,
+    #         metric=metric,
+    #         device=device,
+    #         config=config,
+    #         verbose=1,
+    #     )
 
-    # best_bias_metric = val_metrics[config['FairPrune']["target_bias_metric"]]
-    best_bias_metric = 0.6394507842223532
-    prun_iter_cnt = 0
-    no_improvement_cnt = 0
-    consecutive_no_improvement = 0
+    #     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
+    #         root_image_dir=config["root_image_dir"],
+    #         Generated_csv_path=config["Generated_csv_path"],
+    #         level=config["default"]["level"],
+    #         binary_subgroup=config["default"]["binary_subgroup"],
+    #         holdout_set="random_holdout",
+    #         batch_size=config["default"]["batch_size"],
+    #         num_workers=1,
+    #     )
 
-    while no_improvement_cnt < config["FairPrune"]["max_consecutive_no_improvement"]:
-        since = time.time()
+    #     val_metrics, df_preds = eval_model(
+    #         model_pruned,
+    #         dataloaders,
+    #         dataset_sizes,
+    #         device,
+    #         config["default"]["level"],
+    #         "FairPrune",
+    #         config,
+    #         save_preds=False,
+    #     )
 
-        print(
-            f"+++++++++++++++++++++++++++++ Pruning Iteration {prun_iter_cnt} +++++++++++++++++++++++++++++"
-        )
-        model_pruned = fairprune(
-            model=model,
-            metric=metric,
-            device=device,
-            config=config,
-            verbose=1,
-        )
+    #     if val_metrics[config["FairPrune"]["target_bias_metric"]] > best_bias_metric:
+    #         best_bias_metric = val_metrics[config["FairPrune"]["target_bias_metric"]]
 
-        dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
-            root_image_dir=config["root_image_dir"],
-            Generated_csv_path=config["Generated_csv_path"],
-            level=config["default"]["level"],
-            binary_subgroup=config["default"]["binary_subgroup"],
-            holdout_set="random_holdout",
-            batch_size=config["default"]["batch_size"],
-            num_workers=1,
-        )
+    #         # Save the df_preds
 
-        val_metrics, df_preds = eval_model(
-            model_pruned,
-            dataloaders,
-            dataset_sizes,
-            device,
-            config["default"]["level"],
-            "FairPrune",
-            config,
-            save_preds=False,
-        )
+    #         df_preds.to_csv(
+    #             os.path.join(
+    #                 config["output_folder_path"],
+    #                 f"validation_results_Resnet18_FairPrune_Iter={prun_iter_cnt}.csv",
+    #             ),
+    #             index=False,
+    #         )
 
-        if val_metrics[config["FairPrune"]["target_bias_metric"]] > best_bias_metric:
-            best_bias_metric = val_metrics[config["FairPrune"]["target_bias_metric"]]
+    #         # Save the best model
+    #         print("New leading model val metrics \n")
+    #         print(val_metrics)
 
-            # Save the df_preds
+    #         best_model_path = os.path.join(
+    #             config["output_folder_path"],
+    #             f"Resnet18_checkpoint_FairPrune_Iter={prun_iter_cnt}.pth",
+    #         )
+    #         checkpoint = {
+    #             "leading_val_metrics": val_metrics,
+    #             "model_state_dict": model.state_dict(),
+    #         }
+    #         torch.save(checkpoint, best_model_path)
+    #         print("Checkpoint saved:", best_model_path)
 
-            df_preds.to_csv(
-                os.path.join(
-                    config["output_folder_path"],
-                    f"validation_results_Resnet18_FairPrune_Iter={prun_iter_cnt}.csv",
-                ),
-                index=False,
-            )
+    #         # Reset the counter
+    #         consecutive_no_improvement = 0
+    #     else:
+    #         print(
+    #             "Bias Metric is: {}, No improvement.\n".format(
+    #                 val_metrics[config["FairPrune"]["target_bias_metric"]]
+    #             )
+    #         )
+    #         df_preds.to_csv(
+    #             os.path.join(
+    #                 config["output_folder_path"],
+    #                 f"validation_results_Resnet18_FairPrune_Iter={prun_iter_cnt}_temp.csv",
+    #             ),
+    #             index=False,
+    #         )
+    #         consecutive_no_improvement += 1
 
-            # Save the best model
-            print("New leading model val metrics \n")
-            print(val_metrics)
+    #     prun_iter_cnt += 1
 
-            best_model_path = os.path.join(
-                config["output_folder_path"],
-                f"Resnet18_checkpoint_FairPrune_Iter={prun_iter_cnt}.pth",
-            )
-            checkpoint = {
-                "leading_val_metrics": val_metrics,
-                "model_state_dict": model.state_dict(),
-            }
-            torch.save(checkpoint, best_model_path)
-            print("Checkpoint saved:", best_model_path)
-
-            # Reset the counter
-            consecutive_no_improvement = 0
-        else:
-            print(
-                "Bias Metric is: {}, No improvement.\n".format(
-                    val_metrics[config["FairPrune"]["target_bias_metric"]]
-                )
-            )
-            df_preds.to_csv(
-                os.path.join(
-                    config["output_folder_path"],
-                    f"validation_results_Resnet18_FairPrune_Iter={prun_iter_cnt}_temp.csv",
-                ),
-                index=False,
-            )
-            consecutive_no_improvement += 1
-
-        prun_iter_cnt += 1
-
-        time_elapsed = time.time() - since
-        print(
-            "This iteration took {:.0f}m {:.0f}s".format(
-                time_elapsed // 60, time_elapsed % 60
-            )
-        )
+    #     time_elapsed = time.time() - since
+    #     print(
+    #         "This iteration took {:.0f}m {:.0f}s".format(
+    #             time_elapsed // 60, time_elapsed % 60
+    #         )
+    #     )
 
 
 if __name__ == "__main__":
