@@ -2,8 +2,11 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+import torchvision.transforms as transforms
+from PIL import Image
+import os
 
-from ..Models.ViT_LRP.ViT_explanation_generator import LRP
+from Models.ViT_LRP.ViT_explanation_generator import LRP
 
 
 def generate_visualization(attribution_generator, original_image, class_index=None):
@@ -41,16 +44,25 @@ def show_cam_on_image(img, mask):
     return cam
 
 
-def show_explanation_sample(model, dataloader):
+def show_explanation_sample(model, dataloader, config):
     attribution_generator = LRP(model)
     sample = next(iter(dataloader))
-    image = sample["image"]
-    label = sample["high"]
+    image = sample["image"][0]
+    label = sample["high"][0]
+    print("image hasher: {}".format(sample['hasher'][0]))
 
     vis = generate_visualization(attribution_generator, image, class_index=label)
 
     fig, axs = plt.subplots(1, 2)
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+    ])
+    image = Image.open(os.path.join(config["root_image_dir"], sample['hasher'][0]+".jpg"))
+    image = transform(image).permute(1, 2, 0)
+    
     axs[0].imshow(image)
     axs[0].axis("off")
     axs[1].imshow(vis)
     axs[1].axis("off")
+    plt.savefig("a.png")

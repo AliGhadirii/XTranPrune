@@ -7,7 +7,7 @@ from tqdm import tqdm
 import torch
 
 from Utils.Misc_utils import set_seeds
-from Datasets.Fitz17k_dataset import get_fitz17k_dataloaders
+from Datasets.dataloaders import get_fitz17k_dataloaders
 from Models.ViT_LRP.ViT_LRP import deit_small_patch16_224
 from Utils.XAI_utils import show_explanation_sample
 
@@ -38,7 +38,7 @@ def main(config):
     )
     main_model = main_model.eval().to(device)
 
-    show_explanation_sample(main_model, dataloaders["train"])
+    show_explanation_sample(main_model, dataloaders["val"], config)
 
     # metric = nn.CrossEntropyLoss()
     # # best_bias_metric = val_metrics[config['FairPrune']["target_bias_metric"]]

@@ -16,7 +16,7 @@ default:
   level: high
   binary_subgroup: True
 prune:
-  main_br_path:
+  main_br_path: /content/drive/MyDrive/UNSW/SkinFormer/Outputs/LRP/DeiT-S_LRP_checkpoint_BASE.pth
   SA_br_path:
   batch_size: 64
   n_epochs: 50
