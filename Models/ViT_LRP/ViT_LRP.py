@@ -4,8 +4,9 @@ Hacked together by / Copyright 2020 Ross Wightman
 import torch
 import torch.nn as nn
 from einops import rearrange
-from .layers_ours import *
+import numpy as np
 
+from .layers_ours import *
 from .helpers import load_pretrained
 from .weight_init import trunc_normal_
 from .layer_helpers import to_2tuple
@@ -456,7 +457,8 @@ class VisionTransformer(nn.Module):
                 cams.append(cam.unsqueeze(0))
             rollout = compute_rollout_attention(cams, start_layer=start_layer)
             cam = rollout[:, 0, 1:]
-            return cam
+            blk_attrs = torch.cat(cams, dim=0)
+            return cam, blk_attrs
 
         elif method == "last_layer":
             cam = self.blocks[-1].attn.get_attn_cam()
@@ -486,6 +488,37 @@ class VisionTransformer(nn.Module):
             cam = cam.clamp(min=0).mean(dim=0)
             cam = cam[0, 1:]
             return cam
+    
+    def generate_LRP(
+        self,
+        input,
+        index=None,
+        method="transformer_attribution",
+        is_ablation=False,
+        start_layer=0,
+    ):
+        output = self(input)
+        kwargs = {"alpha": 1}
+        if index == None:
+            index = np.argmax(output.cpu().data.numpy(), axis=-1)
+
+        one_hot = np.zeros((1, output.size()[-1]), dtype=np.float32)
+        one_hot[0, index] = 1
+        one_hot_vector = one_hot
+        one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+        one_hot = torch.sum(one_hot.cuda() * output)
+
+        self.zero_grad()
+        one_hot.backward(retain_graph=True)
+
+        return self.relprop(
+            torch.tensor(one_hot_vector).to(input.device),
+            method=method,
+            is_ablation=is_ablation,
+            start_layer=start_layer,
+            **kwargs,
+        )
+    
 
 
 def _conv_filter(state_dict, patch_size=16):
