@@ -123,6 +123,7 @@ class Attention(nn.Module):
         self.v = None
         self.v_cam = None
         self.attn_gradients = None
+        self.attn_mask = None
 
     def get_attn(self):
         return self.attn
@@ -154,6 +155,9 @@ class Attention(nn.Module):
     def get_attn_gradients(self):
         return self.attn_gradients
 
+    def set_attn_mask(self, mask):
+        self.attn_mask = mask
+
     def forward(self, x):
         b, n, _, h = *x.shape, self.num_heads
         qkv = self.qkv(x)
@@ -169,6 +173,16 @@ class Attention(nn.Module):
         self.save_attn(attn)
         if attn.requires_grad and self.add_hook:
             attn.register_hook(self.save_attn_gradients)
+
+        if self.attn_mask is not None:
+            total_params_before = self.attn.numel()
+            attn = attn * self.attn_mask
+            pruned_params = total_params_before - self.attn.nonzero().size(0)
+            print(f"LOG: attn_mask shape {self.attn_mask.shape}")
+            print(f"LOG: Pruned Parameters: {pruned_params}/{total_params_before}")
+            print(
+                "*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&"
+            )
 
         out = self.matmul2([attn, v])
         out = rearrange(out, "b h n d -> b n (h d)")
@@ -315,6 +329,7 @@ class VisionTransformer(nn.Module):
     ):
         super().__init__()
         self.num_classes = num_classes
+        self.depth = depth
         self.add_hook = add_hook
         self.num_features = (
             self.embed_dim
@@ -382,6 +397,13 @@ class VisionTransformer(nn.Module):
     @property
     def no_weight_decay(self):
         return {"pos_embed", "cls_token"}
+
+    def set_attn_mask(self, mask):
+        assert (
+            mask.shape[0] == self.depth
+        ), "ERROR: Mask shape doesn't match the depth of the model."
+        for i in self.depth:
+            self.blocks[i].attn.set_attn_mask(mask[i])
 
     def forward(self, x):
         B = x.shape[0]
@@ -488,7 +510,7 @@ class VisionTransformer(nn.Module):
             cam = cam.clamp(min=0).mean(dim=0)
             cam = cam[0, 1:]
             return cam
-    
+
     def generate_LRP(
         self,
         input,
@@ -518,7 +540,6 @@ class VisionTransformer(nn.Module):
             start_layer=start_layer,
             **kwargs,
         )
-    
 
 
 def _conv_filter(state_dict, patch_size=16):

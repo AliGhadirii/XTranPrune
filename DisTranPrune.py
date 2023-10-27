@@ -68,8 +68,8 @@ def DisTranPrune(main_model, SA_model, dataloaders, device, config):
     main_blk_attrs_iter = main_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
     SA_blk_attrs_iter = SA_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
 
+    prun_mask = []
     for blk_idx in range(main_blk_attrs_iter.shape[0]):
-        
         # Generating the main mask
         main_attrs_flt = main_blk_attrs_iter[blk_idx].flatten()
 
@@ -90,16 +90,20 @@ def DisTranPrune(main_model, SA_model, dataloaders, device, config):
         )  # Pruning Pruning_rate% of the paramters allowed by the main branch to be pruned
 
         top_k_values, top_k_indices = torch.topk(can_be_pruned_flt, k)
-        prun_mask = torch.ones_like(can_be_pruned_flt)
-        prun_mask[top_k_indices] = 0
+        prun_mask_blk = torch.ones_like(can_be_pruned_flt)
+        prun_mask_blk[top_k_indices] = 0
         # HARDCODED: TOBE fixed
-        prun_mask = prun_mask.reshape((197, 197))
+        prun_mask_blk = prun_mask_blk.reshape((197, 197))
+        prun_mask.append(prun_mask_blk)
 
-        print(f"number of params pruned {(197*197) - prun_mask.sum()}/{(197*197)}")
+        print(f"number of params pruned {(197*197) - prun_mask_blk.sum()}/{(197*197)}")
 
         print(
             f"+++++++++++++++++++++++++++++ Block {blk_idx} +++++++++++++++++++++++++++++"
         )
+
+    prun_mask = torch.stack(prun_mask, dim=0)
+    main_model.set_attn_mask(prun_mask)
 
 
 def main(config):
@@ -135,12 +139,15 @@ def main(config):
         weight_path=config["prune"]["SA_br_path"],
     )
     SA_model = SA_model.eval().to(device)
+    for name, param in main_model.named_parameters():
+        print(name)
+        print(param.shape)
+        print("*&*&*&")
+    # prun_iter_cnt = 0
+    # consecutive_no_improvement = 0
+    # best_bias_metric = config["prune"]["bias_metric_prev"]
 
-    prun_iter_cnt = 0
-    consecutive_no_improvement = 0
-    best_bias_metric = config["prune"]["bias_metric_prev"]
-
-    pruned_model = DisTranPrune(main_model, SA_model, dataloaders, device, config)
+    # pruned_model = DisTranPrune(main_model, SA_model, dataloaders, device, config)
 
     # while (
     #     consecutive_no_improvement <= config["prune"]["max_consecutive_no_improvement"]
