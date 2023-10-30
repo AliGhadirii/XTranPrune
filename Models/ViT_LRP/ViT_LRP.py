@@ -175,14 +175,13 @@ class Attention(nn.Module):
             attn.register_hook(self.save_attn_gradients)
 
         if self.attn_mask is not None:
-            total_params_before = self.attn.numel()
-            attn = attn * self.attn_mask
-            pruned_params = total_params_before - self.attn.nonzero().size(0)
-            print(f"LOG: attn_mask shape {self.attn_mask.shape}")
-            print(f"LOG: Pruned Parameters: {pruned_params}/{total_params_before}")
-            print(
-                "*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&*&"
-            )
+            total_params_before = attn.numel()
+            attn = attn * self.attn_mask.expand(
+                attn.shape
+            )  # element-wise multiplication of the mask of all h heads with the attention matrices of all h heads for all of the #batch_size records
+            pruned_params = total_params_before - attn.nonzero().size(0)
+
+            # print(f"LOG: apprximate number of Pruned Parameters: {pruned_params//64}/{total_params_before//64}")
 
         out = self.matmul2([attn, v])
         out = rearrange(out, "b h n d -> b n (h d)")
@@ -402,7 +401,7 @@ class VisionTransformer(nn.Module):
         assert (
             mask.shape[0] == self.depth
         ), "ERROR: Mask shape doesn't match the depth of the model."
-        for i in self.depth:
+        for i in range(self.depth):
             self.blocks[i].attn.set_attn_mask(mask[i])
 
     def forward(self, x):
@@ -469,17 +468,20 @@ class VisionTransformer(nn.Module):
         # our method, method name grad is legacy
         elif method == "transformer_attribution" or method == "grad":
             cams = []
+            blk_attrs = []
             for blk in self.blocks:
                 grad = blk.attn.get_attn_gradients()
                 cam = blk.attn.get_attn_cam()
                 cam = cam[0].reshape(-1, cam.shape[-1], cam.shape[-1])
                 grad = grad[0].reshape(-1, grad.shape[-1], grad.shape[-1])
                 cam = grad * cam
-                cam = cam.clamp(min=0).mean(dim=0)
+                cam = cam.clamp(min=0)
+                blk_attrs.append(cam)
+                cam = cam.mean(dim=0)
                 cams.append(cam.unsqueeze(0))
             rollout = compute_rollout_attention(cams, start_layer=start_layer)
             cam = rollout[:, 0, 1:]
-            blk_attrs = torch.cat(cams, dim=0)
+            blk_attrs = torch.stack(blk_attrs)
             return cam, blk_attrs
 
         elif method == "last_layer":

@@ -55,6 +55,7 @@ def eval_model(
                 # topk_p.append(np.exp(_.cpu()).tolist())
                 topk_p.append((_.cpu()).tolist())
                 topk_n.append(preds5.cpu().tolist())
+
             running_corrects += torch.sum(preds.reshape(-1) == classes.data)
             running_balanced_acc_sum += (
                 balanced_accuracy_score(classes.data.cpu(), preds.reshape(-1).cpu())
@@ -66,6 +67,7 @@ def eval_model(
             fitzpatrick_list.append(fitzpatrick.tolist())
             hasher_list.append(hasher)
             total += inputs.shape[0]
+
         acc = float(running_corrects) / float(dataset_sizes["val"])
         balanced_acc = float(running_balanced_acc_sum) / float(dataset_sizes["val"])
 
@@ -125,7 +127,7 @@ def eval_model(
             index=False,
         )
         print(
-            f"\n Final Validation results for {model_type}: Accuracy: {acc}  Balanced Accuracy: {balanced_acc} \n"
+            f"\nFinal Validation results for {model_type}: Accuracy: {acc}  Balanced Accuracy: {balanced_acc} \n"
         )
 
     if binary_fitz_given:

@@ -29,13 +29,14 @@ def describe_tensor(tensor):
 def DisTranPrune(main_model, SA_model, dataloaders, device, config):
     train_DL_iter = iter(dataloaders["train"])
     # HARDCODED: TOBE fixed
-    blk_attrs_shape = (12, 197, 197)
+    blk_attrs_shape = (12, 6, 197, 197)
     main_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
     SA_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
 
     for itr in tqdm(
         range(config["prune"]["num_batch_per_iter"]),
         total=config["prune"]["num_batch_per_iter"],
+        desc="Generating masks",
     ):
         batch = next(train_DL_iter)
         inputs = batch["image"].to(device)
@@ -70,40 +71,48 @@ def DisTranPrune(main_model, SA_model, dataloaders, device, config):
 
     prun_mask = []
     for blk_idx in range(main_blk_attrs_iter.shape[0]):
-        # Generating the main mask
-        main_attrs_flt = main_blk_attrs_iter[blk_idx].flatten()
+        prun_mask_blk = []
+        for h in range(main_blk_attrs_iter.shape[1]):
+            # Generating the main mask
+            main_attrs_flt = main_blk_attrs_iter[blk_idx][h].flatten()
 
-        threshold = torch.quantile(
-            main_attrs_flt, config["prune"]["main_mask_quantile"]
-        )  # (1- this param)% of the most important main params will be retained
-        print(f"threshold={threshold}")
-        main_mask = (main_blk_attrs_iter[blk_idx] < threshold).float()
+            threshold = torch.quantile(
+                main_attrs_flt, config["prune"]["main_mask_quantile"]
+            )  # (1- this param)% of the most important main params will be retained
 
-        print(f"number of params allowed to be pruned {main_mask.sum()}")
+            # print(f"threshold={threshold}")
 
-        # Generating the pruning mask from SA branch
-        can_be_pruned = SA_blk_attrs_iter[blk_idx] * main_mask
-        can_be_pruned_flt = can_be_pruned.flatten()
+            main_mask = (main_blk_attrs_iter[blk_idx][h] < threshold).float()
 
-        k = int(
-            config["prune"]["pruning_rate"] * main_mask.sum()
-        )  # Pruning Pruning_rate% of the paramters allowed by the main branch to be pruned
+            # print(f"number of params allowed to be pruned {main_mask.sum()}")
 
-        top_k_values, top_k_indices = torch.topk(can_be_pruned_flt, k)
-        prun_mask_blk = torch.ones_like(can_be_pruned_flt)
-        prun_mask_blk[top_k_indices] = 0
-        # HARDCODED: TOBE fixed
-        prun_mask_blk = prun_mask_blk.reshape((197, 197))
+            # Generating the pruning mask from SA branch
+            can_be_pruned = SA_blk_attrs_iter[blk_idx][h] * main_mask
+            can_be_pruned_flt = can_be_pruned.flatten()
+
+            k = int(
+                config["prune"]["pruning_rate"] * main_mask.sum()
+            )  # Pruning Pruning_rate% of the paramters allowed by the main branch to be pruned
+
+            top_k_values, top_k_indices = torch.topk(can_be_pruned_flt, k)
+            prun_mask_blk_head = torch.ones_like(can_be_pruned_flt)
+            prun_mask_blk_head[top_k_indices] = 0
+            # HARDCODED: TOBE fixed
+            prun_mask_blk_head = prun_mask_blk_head.reshape((197, 197))
+            prun_mask_blk.append(prun_mask_blk_head)
+
+            print(
+                f"number of params pruned in head {h}: {(197*197) - prun_mask_blk_head.sum()}/{(197*197)}"
+            )
+        prun_mask_blk = torch.stack(prun_mask_blk, dim=0)
         prun_mask.append(prun_mask_blk)
-
-        print(f"number of params pruned {(197*197) - prun_mask_blk.sum()}/{(197*197)}")
-
         print(
             f"+++++++++++++++++++++++++++++ Block {blk_idx} +++++++++++++++++++++++++++++"
         )
 
     prun_mask = torch.stack(prun_mask, dim=0)
     main_model.set_attn_mask(prun_mask)
+    return main_model
 
 
 def main(config):
@@ -113,13 +122,23 @@ def main(config):
 
     set_seeds(config["seed"])
 
-    dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
+    p_dataloaders, p_dataset_sizes, p_num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         level=config["default"]["level"],
         binary_subgroup=config["prune"]["binary_subgroup"],
         holdout_set="random_holdout",
         batch_size=config["prune"]["batch_size"],
+        num_workers=1,
+    )
+
+    dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
+        root_image_dir=config["root_image_dir"],
+        Generated_csv_path=config["Generated_csv_path"],
+        level=config["default"]["level"],
+        binary_subgroup=config["default"]["binary_subgroup"],
+        holdout_set="random_holdout",
+        batch_size=config["default"]["batch_size"],
         num_workers=1,
     )
 
@@ -139,73 +158,67 @@ def main(config):
         weight_path=config["prune"]["SA_br_path"],
     )
     SA_model = SA_model.eval().to(device)
-    for name, param in main_model.named_parameters():
-        print(name)
-        print(param.shape)
-        print("*&*&*&")
-    # prun_iter_cnt = 0
-    # consecutive_no_improvement = 0
-    # best_bias_metric = config["prune"]["bias_metric_prev"]
 
-    # pruned_model = DisTranPrune(main_model, SA_model, dataloaders, device, config)
+    prun_iter_cnt = 0
+    consecutive_no_improvement = 0
+    best_bias_metric = config["prune"]["bias_metric_prev"]
 
-    # while (
-    #     consecutive_no_improvement <= config["prune"]["max_consecutive_no_improvement"]
-    # ):
-    #     since = time.time()
+    while (
+        consecutive_no_improvement <= config["prune"]["max_consecutive_no_improvement"]
+    ):
+        since = time.time()
 
-    #     print(
-    #         f"+++++++++++++++++++++++++++++ Pruning Iteration {prun_iter_cnt} +++++++++++++++++++++++++++++"
-    #     )
+        print(
+            f"+++++++++++++++++++++++++++++ Pruning Iteration {prun_iter_cnt} +++++++++++++++++++++++++++++"
+        )
 
-    #     pruned_model = DisTranPrune(main_model, SA_model, dataloaders, device)
+        pruned_model = DisTranPrune(main_model, SA_model, p_dataloaders, device, config)
 
-    #     model_name = f"DeiT-S_LRP_PIter{prun_iter_cnt}"
+        model_name = f"DeiT-S_LRP_PIter{prun_iter_cnt}"
 
-    #     val_metrics, val_metrics_binary_SA, _ = eval_model(
-    #         pruned_model,
-    #         dataloaders,
-    #         dataset_sizes,
-    #         device,
-    #         config["default"]["level"],
-    #         model_name,
-    #         config,
-    #         save_preds=True,
-    #     )
+        val_metrics, val_metrics_binary_SA, _ = eval_model(
+            pruned_model,
+            dataloaders,
+            dataset_sizes,
+            device,
+            config["default"]["level"],
+            model_name,
+            config,
+            save_preds=True,
+        )
 
-    #     print(f"Iteration {prun_iter_cnt} val metrics \n")
-    #     print(val_metrics)
-    #     print(val_metrics_binary_SA)
+        if val_metrics[config["prune"]["target_bias_metric"]] > best_bias_metric:
+            best_bias_metric = val_metrics[config["FairPrune"]["target_bias_metric"]]
+            # Save the best model
+            print("New leading model val metrics, saving the weights...\n")
 
-    #     if val_metrics[config["prune"]["target_bias_metric"]] > best_bias_metric:
-    #         best_bias_metric = val_metrics[config["FairPrune"]["target_bias_metric"]]
-    #         # Save the best model
-    #         print("New leading model val metrics, saving the weights...\n")
+            best_model_path = os.path.join(
+                config["output_folder_path"],
+                f"DeiT-S_LRP_checkpoint_prune_Iter={prun_iter_cnt}.pth",
+            )
+            checkpoint = {
+                "config": config,
+                "leading_val_metrics": val_metrics,
+                "model_state_dict": pruned_model.state_dict(),
+            }
+            torch.save(checkpoint, best_model_path)
+            print("Checkpoint saved:", best_model_path)
 
-    #         best_model_path = os.path.join(
-    #             config["output_folder_path"],
-    #             f"DeiT-S_LRP_checkpoint_prune_Iter={prun_iter_cnt}.pth",
-    #         )
-    #         checkpoint = {
-    #             "leading_val_metrics": val_metrics,
-    #             "model_state_dict": pruned_model.state_dict(),
-    #         }
-    #         torch.save(checkpoint, best_model_path)
-    #         print("Checkpoint saved:", best_model_path)
+            # Reset the counter
+            consecutive_no_improvement = 0
+        else:
+            print(f"No improvements in Iteration {prun_iter_cnt}, val metrics: \n")
+            print(val_metrics)
+            consecutive_no_improvement += 1
 
-    #         # Reset the counter
-    #         consecutive_no_improvement = 0
-    #     else:
-    #         consecutive_no_improvement += 1
+        prun_iter_cnt += 1
 
-    #     prun_iter_cnt += 1
-
-    #     time_elapsed = time.time() - since
-    #     print(
-    #         "This iteration took {:.0f}m {:.0f}s".format(
-    #             time_elapsed // 60, time_elapsed % 60
-    #         )
-    #     )
+        time_elapsed = time.time() - since
+        print(
+            "This iteration took {:.0f}m {:.0f}s".format(
+                time_elapsed // 60, time_elapsed % 60
+            )
+        )
 
 
 if __name__ == "__main__":
