@@ -156,7 +156,13 @@ class Attention(nn.Module):
         return self.attn_gradients
 
     def set_attn_mask(self, mask):
-        self.attn_mask = mask
+        if self.attn_mask is None:
+            self.attn_mask = mask
+        else:
+            assert (
+                self.attn_mask.shape == mask.shape
+            ), "Attention class set_attn_mask(): The shape of the mask is not correct."
+            self.attn_mask = torch.logical_or(self.attn_mask, mask).to(torch.float32)
 
     def forward(self, x):
         b, n, _, h = *x.shape, self.num_heads

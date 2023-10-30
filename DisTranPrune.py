@@ -172,7 +172,14 @@ def main(config):
             f"+++++++++++++++++++++++++++++ Pruning Iteration {prun_iter_cnt} +++++++++++++++++++++++++++++"
         )
 
-        pruned_model = DisTranPrune(main_model, SA_model, p_dataloaders, device, config)
+        if prun_iter_cnt == 0:
+            pruned_model = DisTranPrune(
+                main_model, SA_model, p_dataloaders, device, config
+            )
+        else:
+            pruned_model = DisTranPrune(
+                pruned_model, SA_model, p_dataloaders, device, config
+            )
 
         model_name = f"DeiT-S_LRP_PIter{prun_iter_cnt}"
 
@@ -188,7 +195,7 @@ def main(config):
         )
 
         if val_metrics[config["prune"]["target_bias_metric"]] > best_bias_metric:
-            best_bias_metric = val_metrics[config["FairPrune"]["target_bias_metric"]]
+            best_bias_metric = val_metrics[config["prune"]["target_bias_metric"]]
             # Save the best model
             print("New leading model val metrics, saving the weights...\n")
 
