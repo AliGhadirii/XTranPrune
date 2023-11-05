@@ -162,7 +162,12 @@ class Attention(nn.Module):
             assert (
                 self.attn_mask.shape == mask.shape
             ), "Attention class set_attn_mask(): The shape of the mask is not correct."
+            print("#_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_#")
+            print(f"new mask 1's: {mask.sum()}")
+            print(f"old mask 1's: {self.attn_mask.sum()}")
             self.attn_mask = torch.logical_or(self.attn_mask, mask).to(torch.float32)
+            print(f"Resulting mask 1's: {self.attn_mask.sum()}")
+            print("#_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_#")
 
     def forward(self, x):
         b, n, _, h = *x.shape, self.num_heads

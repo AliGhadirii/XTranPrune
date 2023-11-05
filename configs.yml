@@ -20,11 +20,11 @@ prune:
   main_br_path: /content/drive/MyDrive/SkinFormer/Outputs/LRP/DeiT-S_LRP_checkpoint_BASE.pth
   #SA_br_path: /content/drive/MyDrive/UNSW/SkinFormer/Outputs/LRP/DeiT-S_LRP_checkpoint_6SA_detection.pth
   SA_br_path: /content/drive/MyDrive/SkinFormer/Outputs/LRP/DeiT-S_LRP_checkpoint_6SA_detection.pth
-  batch_size: 2
+  batch_size: 4
   binary_subgroup: False
   bias_metric_prev: 0.6284
   target_bias_metric: EOM
-  num_batch_per_iter: 100
+  num_batch_per_iter: 500
   max_consecutive_no_improvement: 5
   main_mask_quantile: 0.2  # (1- this param)% of the most important main params will be retained
-  pruning_rate: 0.4        # showing the percentage of prunable parameters allowed by main branch to prune
+  pruning_rate: 0.2        # showing the percentage of prunable parameters allowed by main branch to prune

@@ -101,14 +101,14 @@ def DisTranPrune(main_model, SA_model, dataloaders, device, config):
             prun_mask_blk_head = prun_mask_blk_head.reshape((197, 197))
             prun_mask_blk.append(prun_mask_blk_head)
 
-            print(
-                f"number of params pruned in head {h}: {(197*197) - prun_mask_blk_head.sum()}/{(197*197)}"
-            )
+            # print(
+            #     f"number of params pruned in head {h}: {(197*197) - prun_mask_blk_head.sum()}/{(197*197)}"
+            # )
         prun_mask_blk = torch.stack(prun_mask_blk, dim=0)
         prun_mask.append(prun_mask_blk)
-        print(
-            f"+++++++++++++++++++++++++++++ Block {blk_idx} +++++++++++++++++++++++++++++"
-        )
+        # print(
+        #     f"+++++++++++++++++++++++++++++ Block {blk_idx} +++++++++++++++++++++++++++++"
+        # )
 
     prun_mask = torch.stack(prun_mask, dim=0)
     main_model.set_attn_mask(prun_mask)
@@ -196,8 +196,10 @@ def main(config):
 
         if val_metrics[config["prune"]["target_bias_metric"]] > best_bias_metric:
             best_bias_metric = val_metrics[config["prune"]["target_bias_metric"]]
+            
             # Save the best model
             print("New leading model val metrics, saving the weights...\n")
+            print(val_metrics)
 
             best_model_path = os.path.join(
                 config["output_folder_path"],
