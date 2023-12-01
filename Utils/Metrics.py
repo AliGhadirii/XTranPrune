@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_curve, auc, confusion_matrix
 
 
 def cal_metrics(df, type_indices, is_binary=False):
@@ -13,10 +13,15 @@ def cal_metrics(df, type_indices, is_binary=False):
     correct_array = np.zeros((6, len(df["label"].unique())))
     predictions_array = np.zeros((6, len(df["label"].unique())))
     positive_list = []  # get positive probability for binary classification
+    labels_ft0 = []
+    labels_ft1 = []
+    predictions_ft0 = []
+    predictions_ft1 = []
+
     for i in range(df.shape[0]):
         prediction = df.iloc[i]["prediction"]
         label = df.iloc[i]["label"]
-        type = df.iloc[i]["fitzpatrick"]
+        type = df.iloc[i]["fitzpatrick"] - 1
         labels_array[int(type), int(label)] += 1
         predictions_array[int(type), int(prediction)] += 1
         if prediction == label:
@@ -27,6 +32,15 @@ def cal_metrics(df, type_indices, is_binary=False):
                 positive_list.append(1.0 - df.iloc[i]["prediction_probability"])
             else:
                 positive_list.append(df.iloc[i]["prediction_probability"])
+
+        binary_type = 0 if df.iloc[i]["fitzpatrick"] in [1, 2, 3] else 1
+
+        if binary_type == 0:
+            labels_ft0.append(label)
+            predictions_ft0.append(prediction)
+        else:
+            labels_ft1.append(label)
+            predictions_ft1.append(prediction)
 
     correct_array = correct_array[type_indices]
     labels_array = labels_array[type_indices]
@@ -50,6 +64,88 @@ def cal_metrics(df, type_indices, is_binary=False):
     eo_array = correct_array / labels_array
     EOM = np.mean(np.min(eo_array, axis=0) / np.max(eo_array, axis=0))
 
+    # getting class-wise TPR, FPR, TNR for fitzpatrick 0
+    conf_matrix_fitz0 = confusion_matrix(labels_ft0, predictions_ft0)
+
+    # Initialize lists to store TPR, TNR, FPR for each class
+    class_tpr_fitz0 = []
+    class_tnr_fitz0 = []
+    class_fpr_fitz0 = []
+
+    for i in range(len(conf_matrix_fitz0)):
+        # Calculate TPR for class i
+        tpr = conf_matrix_fitz0[i, i] / sum(conf_matrix_fitz0[i, :])
+        class_tpr_fitz0.append(tpr)
+
+        # Calculate TNR for class i
+        tn = (
+            sum(sum(conf_matrix_fitz0))
+            - sum(conf_matrix_fitz0[i, :])
+            - sum(conf_matrix_fitz0[:, i])
+            + conf_matrix_fitz0[i, i]
+        )
+        fp = sum(conf_matrix_fitz0[:, i]) - conf_matrix_fitz0[i, i]
+        fn = sum(conf_matrix_fitz0[i, :]) - conf_matrix_fitz0[i, i]
+        tnr = tn / (tn + fp)
+        class_tnr_fitz0.append(tnr)
+
+        # Calculate FPR for class i
+        fpr = 1 - tnr
+        class_fpr_fitz0.append(fpr)
+
+    # getting class-wise TPR, FPR, TNR for fitzpatrick 1
+
+    conf_matrix_fitz1 = confusion_matrix(labels_ft1, predictions_ft1)
+
+    # Initialize lists to store TPR, TNR, FPR for each class
+    class_tpr_fitz1 = []
+    class_tnr_fitz1 = []
+    class_fpr_fitz1 = []
+
+    for i in range(len(conf_matrix_fitz1)):
+        # Calculate TPR for class i
+        tpr = conf_matrix_fitz1[i, i] / sum(conf_matrix_fitz1[i, :])
+        class_tpr_fitz1.append(tpr)
+
+        # Calculate TNR for class i
+        tn = (
+            sum(sum(conf_matrix_fitz1))
+            - sum(conf_matrix_fitz1[i, :])
+            - sum(conf_matrix_fitz1[:, i])
+            + conf_matrix_fitz1[i, i]
+        )
+        fp = sum(conf_matrix_fitz1[:, i]) - conf_matrix_fitz1[i, i]
+        fn = sum(conf_matrix_fitz1[i, :]) - conf_matrix_fitz1[i, i]
+        tnr = tn / (tn + fp)
+        class_tnr_fitz1.append(tnr)
+
+        # Calculate FPR for class i
+        fpr = 1 - tnr
+        class_fpr_fitz1.append(fpr)
+
+    # EOpp0
+    EOpp0 = 0
+    for c in range(len(class_tnr_fitz0)):
+        EOpp0 += abs(class_tnr_fitz1[c] - class_tnr_fitz0[c])
+
+    # EOpp1
+    EOpp1 = 0
+    for c in range(len(class_tpr_fitz0)):
+        EOpp1 += abs(class_tpr_fitz1[c] - class_tpr_fitz0[c])
+
+    # EOdd
+    EOdd = 0
+    for c in range(len(class_tpr_fitz0)):
+        EOdd += abs(
+            class_tpr_fitz1[c]
+            - class_tpr_fitz0[c]
+            + class_fpr_fitz1[c]
+            - class_fpr_fitz0[c]
+        )
+
+    # NAR
+    NAR = (acc_array.max() - acc_array.min()) / acc_array.mean()
+
     # if is binary classification, output AUC
     if is_binary:
         fpr, tpr, threshold = roc_curve(
@@ -65,5 +161,9 @@ def cal_metrics(df, type_indices, is_binary=False):
         "PQD": PQD,
         "DPM": DPM,
         "EOM": EOM,
+        "EOpp0": EOpp0,
+        "EOpp1": EOpp1,
+        "EOdd": EOdd,
+        "NAR": NAR,
         "AUC": AUC,
     }
