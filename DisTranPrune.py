@@ -126,7 +126,6 @@ def main(config):
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         level=config["default"]["level"],
-        binary_subgroup=config["prune"]["binary_subgroup"],
         holdout_set="random_holdout",
         batch_size=config["prune"]["batch_size"],
         num_workers=1,
@@ -136,7 +135,6 @@ def main(config):
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         level=config["default"]["level"],
-        binary_subgroup=config["default"]["binary_subgroup"],
         holdout_set="random_holdout",
         batch_size=config["default"]["batch_size"],
         num_workers=1,
@@ -196,7 +194,7 @@ def main(config):
 
         if val_metrics[config["prune"]["target_bias_metric"]] > best_bias_metric:
             best_bias_metric = val_metrics[config["prune"]["target_bias_metric"]]
-            
+
             # Save the best model
             print("New leading model val metrics, saving the weights...\n")
             print(val_metrics)
