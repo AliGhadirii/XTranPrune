@@ -11,3 +11,10 @@ default:
   pretrained: True
   level: high
   binary_subgroup: False
+prune:
+  main_br_path:
+  SA_br_path:
+  batch_size: 64
+  n_epochs: 50
+  binary_subgroup: False
+  bias_metric_prev: 0.62

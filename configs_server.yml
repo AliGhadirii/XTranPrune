@@ -1,20 +1,15 @@
 ---
 seed: 42
-output_folder_path: /content/drive/MyDrive/SkinFormer/Outputs/LRP/
-#output_folder_path: /content/drive/MyDrive/UNSW/SkinFormer/Outputs/LRP/
-#output_folder_path: /content/drive/MyDrive/SkinFormer/Outputs/
-#output_folder_path: /content/drive/MyDrive/UNSW/SkinFormer/Outputs/
-root_image_dir: /content/drive/MyDrive/Datasets/Fitz17k/Images/
-#root_image_dir: /content/drive/MyDrive/UNSW/Datasets/Fitz17k/Images/
-Generated_csv_path: /content/drive/MyDrive/Datasets/Fitz17k/SkinFormer/fitapatrick17k_known_code.csv
-#Generated_csv_path: /content/drive/MyDrive/UNSW/Datasets/Fitz17k/SkinFormer/fitapatrick17k_known_code.csv
+output_folder_path: /home/ali/Outputs/Training_2SA/
+root_image_dir: /home/ali/Datasets/Fitz17k/Images/
+Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
 num_workers: 1
 default:
   batch_size: 64
   n_epochs: 50
   pretrained: True
   level: high
-  binary_subgroup: False
+  binary_subgroup: True
 prune:
   #main_br_path: /content/drive/MyDrive/UNSW/SkinFormer/Outputs/LRP/DeiT-S_LRP_checkpoint_BASE.pth
   main_br_path: /content/drive/MyDrive/SkinFormer/Outputs/LRP/DeiT-S_LRP_checkpoint_BASE.pth

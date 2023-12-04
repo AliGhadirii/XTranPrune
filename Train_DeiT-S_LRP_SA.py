@@ -27,6 +27,7 @@ def train_model(
     optimizer,
     scheduler,
     device,
+    model_name,
     config,
 ):
     since = time.time()
@@ -38,7 +39,7 @@ def train_model(
     best_acc = 0
 
     best_model_path = os.path.join(
-        config["output_folder_path"], "DeiT-S_LRP_checkpoint_6SA_detection.pth"
+        config["output_folder_path"], f"{model_name}.pth"
     )
 
     if os.path.isfile(best_model_path):
@@ -203,7 +204,7 @@ def main(config):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     set_seeds(config["seed"])
-    model_name = "DiT_S_LRP_SA"
+    model_name = "DiT_S_LRP_2SA"
 
     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
@@ -218,7 +219,7 @@ def main(config):
     model = deit_small_patch16_224(
         pretrained=config["default"]["pretrained"],
         pretrained_path=config["PreTrained_path"],
-        num_classes=6,
+        num_classes=2 if config["default"]["binary_subgroup"] else 6,
         add_hook=False
     )
     model = model.to(device)
@@ -244,6 +245,7 @@ def main(config):
         optimizer,
         scheduler,
         device,
+        model_name,
         config,
     )
 
