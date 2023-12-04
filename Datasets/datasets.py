@@ -48,6 +48,7 @@ class Fitz17kDataset:
         high = self.df.loc[self.df.index[idx], "high"]
         mid = self.df.loc[self.df.index[idx], "mid"]
         low = self.df.loc[self.df.index[idx], "low"]
+        binary = self.df.loc[self.df.index[idx], "binary"]
         fitzpatrick = self.df.loc[
             self.df.index[idx], "fitzpatrick"
         ]  # Range: [1, 6] (it is changed to [0, 5] in dataloaders.py)
@@ -59,6 +60,7 @@ class Fitz17kDataset:
             "high": high,
             "mid": mid,
             "low": low,
+            "binary": binary,
             "hasher": hasher,
             "fitzpatrick": fitzpatrick,
         }
