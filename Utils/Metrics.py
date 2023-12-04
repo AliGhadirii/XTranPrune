@@ -2,13 +2,14 @@ import numpy as np
 from sklearn.metrics import roc_curve, auc, confusion_matrix
 
 
-def cal_metrics(df, type_indices, is_binary=False):
+def cal_metrics(df, is_binary=False):
     """
-    calculate average accuracy, accuracy per skin type, PQD, DPM, EOM.
-    All known skin types
+    calculate average accuracy, accuracy per skin type, PQD, DPM, EOM, EOpp0, EOpp1, EOdd, and NAR.
+    Skin type in the input df should be in the range of [0,5].
     input val results csv path, type_indices: a list
     output a dic, 'acc_avg': value, 'acc_per_type': array[x,x,x], 'PQD', 'DPM', 'EOM'
     """
+    type_indices = sorted(list(df["fitzpatrick"].unique()))
     labels_array = np.zeros((6, len(df["label"].unique())))
     correct_array = np.zeros((6, len(df["label"].unique())))
     predictions_array = np.zeros((6, len(df["label"].unique())))
@@ -21,7 +22,7 @@ def cal_metrics(df, type_indices, is_binary=False):
     for i in range(df.shape[0]):
         prediction = df.iloc[i]["prediction"]
         label = df.iloc[i]["label"]
-        type = df.iloc[i]["fitzpatrick"] - 1
+        type = df.iloc[i]["fitzpatrick"]
         labels_array[int(type), int(label)] += 1
         predictions_array[int(type), int(prediction)] += 1
         if prediction == label:
@@ -33,7 +34,7 @@ def cal_metrics(df, type_indices, is_binary=False):
             else:
                 positive_list.append(df.iloc[i]["prediction_probability"])
 
-        binary_type = 0 if df.iloc[i]["fitzpatrick"] in [1, 2, 3] else 1
+        binary_type = 0 if df.iloc[i]["fitzpatrick"] in [0, 1, 2] else 1
 
         if binary_type == 0:
             labels_ft0.append(label)

@@ -48,7 +48,9 @@ class Fitz17kDataset:
         high = self.df.loc[self.df.index[idx], "high"]
         mid = self.df.loc[self.df.index[idx], "mid"]
         low = self.df.loc[self.df.index[idx], "low"]
-        fitzpatrick = self.df.loc[self.df.index[idx], "fitzpatrick"]
+        fitzpatrick = self.df.loc[
+            self.df.index[idx], "fitzpatrick"
+        ]  # Range: [1, 6] (it is changed to [0, 5] in dataloaders.py)
 
         if self.transform:
             image = self.transform(image)
