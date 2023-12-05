@@ -95,10 +95,11 @@ def train_model(
                     outputs = model(inputs)
 
                     if num_classes == 2:
-                        probs = nn.functional.sigmoid(outputs).cpu().data.numpy()
-                        theshold = find_threshold(probs, labels)
+                        probs = nn.functional.sigmoid(outputs)
+                        theshold = find_threshold(
+                            probs.cpu().data.numpy(), labels.cpu().data.numpy()
+                        )
                         preds = probs > theshold
-                        preds = preds.to(device)
                     else:
                         probs, preds = torch.max(outputs, 1)
 
