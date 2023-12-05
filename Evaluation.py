@@ -5,23 +5,25 @@ import pandas as pd
 import torch
 from sklearn.metrics import balanced_accuracy_score
 
-from Utils.Metrics import cal_metrics
+from Utils.Metrics import cal_metrics, find_threshold
 
 
 def eval_model(
     model,
     dataloaders,
     dataset_sizes,
+    num_classes,
     device,
     level,
     model_type,
     config,
     save_preds=False,
-    binary_fitz_given=False,
 ):
     model = model.eval()
     prediction_list = []
     fitzpatrick_list = []
+    fitzpatrick_binary_list = []
+    fitzpatrick_scale_list = []
     hasher_list = []
     labels_list = []
     p_list = []
@@ -42,16 +44,28 @@ def eval_model(
             inputs = batch["image"].to(device)
             classes = batch[level]
             fitzpatrick = batch["fitzpatrick"]
+            fitzpatrick_binary = batch["fitzpatrick_binary"]
+            fitzpatrick_scale = batch["fitzpatrick_scale"]
             classes = torch.from_numpy(np.asarray(classes)).to(device)
-            fitzpatrick = torch.from_numpy(np.asarray(fitzpatrick)).to(device)
+            fitzpatrick = torch.from_numpy(np.asarray(fitzpatrick))
+            fitzpatrick_binary = torch.from_numpy(np.asarray(fitzpatrick_binary))
+            fitzpatrick_scale = torch.from_numpy(np.asarray(fitzpatrick_scale))
             hasher = batch["hasher"]
 
             outputs = model(inputs.float())  # (batchsize, classes num)
-            probability = torch.nn.functional.softmax(outputs, dim=1)
-            ppp, preds = torch.topk(probability, 1)  # topk values, topk indices
+
+            if num_classes == 2:
+                probs = torch.nn.functional.sigmoid(outputs)
+                theshold = find_threshold(
+                    probs.cpu().data.numpy(), classes.cpu().data.numpy()
+                )
+                preds = probs > theshold
+            else:
+                all_probs = torch.nn.functional.softmax(outputs, dim=1)
+                probs, preds = torch.topk(all_probs, 1)  # topk values, topk indices
 
             if level == "low":
-                _, preds5 = torch.topk(probability, 3)  # topk values, topk indices
+                _, preds5 = torch.topk(all_probs, 3)  # topk values, topk indices
                 # topk_p.append(np.exp(_.cpu()).tolist())
                 topk_p.append((_.cpu()).tolist())
                 topk_n.append(preds5.cpu().tolist())
@@ -61,10 +75,12 @@ def eval_model(
                 balanced_accuracy_score(classes.data.cpu(), preds.reshape(-1).cpu())
                 * inputs.shape[0]
             )
-            p_list.append(ppp.cpu().tolist())
+            p_list.append(probs.cpu().tolist())
             prediction_list.append(preds.cpu().tolist())
             labels_list.append(classes.tolist())
             fitzpatrick_list.append(fitzpatrick.tolist())
+            fitzpatrick_binary_list.append(fitzpatrick_binary.tolist())
+            fitzpatrick_scale_list.append(fitzpatrick_scale.tolist())
             hasher_list.append(hasher)
             total += inputs.shape[0]
 
@@ -96,6 +112,8 @@ def eval_model(
                 "hasher": flatten(hasher_list),
                 "label": flatten(labels_list),
                 "fitzpatrick": flatten(fitzpatrick_list),
+                "fitzpatrick_binary": flatten(fitzpatrick_binary_list),
+                "fitzpatrick_scale": flatten(fitzpatrick_scale_list),
                 "prediction_probability": flatten(p_list),
                 "prediction": flatten(prediction_list),
                 "d1": d1,
@@ -112,6 +130,8 @@ def eval_model(
                 "hasher": flatten(hasher_list),
                 "label": flatten(labels_list),
                 "fitzpatrick": flatten(fitzpatrick_list),
+                "fitzpatrick_binary": flatten(fitzpatrick_binary_list),
+                "fitzpatrick_scale": flatten(fitzpatrick_scale_list),
                 "prediction_probability": flatten(p_list),
                 "prediction": flatten(prediction_list),
             }
@@ -122,7 +142,7 @@ def eval_model(
         df_preds.to_csv(
             os.path.join(
                 config["output_folder_path"],
-                f"validation_results_{model_type}_{num_epoch}_random_holdout.csv",
+                f"validation_results_{model_type}_epoch={num_epoch}_random_holdout.csv",
             ),
             index=False,
         )
@@ -130,42 +150,6 @@ def eval_model(
             f"\nFinal Validation results for {model_type}: Accuracy: {acc}  Balanced Accuracy: {balanced_acc} \n"
         )
 
-    if binary_fitz_given:
-        # calculating the metrics (binary subgroup)
-        metrics_binary_SA = cal_metrics(df_preds, is_binary=False)
+    metrics = cal_metrics(df_preds)
 
-        # calculating the metrics
-        df_main = pd.read_csv(config["Generated_csv_path"])
-        df_merged = df_preds.merge(df_main, left_on="hasher", right_on="hasher")[
-            [
-                "hasher",
-                "label_x",
-                "fitzpatrick_y",
-                "prediction_probability",
-                "prediction",
-            ]
-        ]
-        df_merged.rename(
-            columns={"label_x": "label", "fitzpatrick_y": "fitzpatrick"}, inplace=True
-        )
-
-        metrics = cal_metrics(df_merged, is_binary=False)
-
-        return metrics, metrics_binary_SA, df_merged
-
-    else:  # 6-value fitzpatrick is given
-        # calculating the metrics
-        metrics = cal_metrics(df_preds, is_binary=False)
-        df_orig = df_preds.copy()
-
-        # calculating the metrics (binary subgroup)
-        def map_fitzpatrick(value):
-            return 0 if value in [0, 1, 2] else 1
-
-        df_preds["fitzpatrick"] = df_preds["fitzpatrick"].apply(
-            lambda x: map_fitzpatrick(x)
-        )
-
-        metrics_binary_SA = cal_metrics(df_preds, is_binary=False)
-
-        return metrics, metrics_binary_SA, df_orig
+    return metrics, df_preds

@@ -15,6 +15,7 @@ from Datasets.dataloaders import get_fitz17k_dataloaders
 from Models.ViT_LRP.ViT_LRP import deit_small_patch16_224
 from Utils.Misc_utils import set_seeds, LinearWarmup
 from Utils.transformers_utils import get_params_groups
+from Utils.Metrics import find_threshold
 from Evaluation import eval_model
 
 
@@ -27,6 +28,7 @@ def train_model(
     optimizer,
     scheduler,
     device,
+    model_name,
     config,
 ):
     since = time.time()
@@ -38,7 +40,7 @@ def train_model(
     best_acc = 0
 
     best_model_path = os.path.join(
-        config["output_folder_path"], "DeiT-S_LRP_checkpoint_BASE.pth"
+        config["output_folder_path"], f"{model_name}_checkpoint_BASE.pth"
     )
 
     if os.path.isfile(best_model_path):
@@ -80,7 +82,7 @@ def train_model(
             for batch in dataloaders[phase]:
                 # Send inputs and labels to the device
                 inputs = batch["image"].to(device)
-                labels = batch["high"]
+                labels = batch[config["default"]["level"]]
 
                 labels = torch.from_numpy(np.asarray(labels)).to(device)
 
@@ -91,7 +93,14 @@ def train_model(
                 with torch.set_grad_enabled(phase == "train"):
                     inputs = inputs.float()
                     outputs = model(inputs)
-                    _, preds = torch.max(outputs, 1)
+
+                    if num_classes == 2:
+                        probs = nn.functional.sigmoid(outputs).cpu().data.numpy()
+                        theshold = find_threshold(probs, labels)
+                        preds = probs > theshold
+                        preds = preds.to(device)
+                    else:
+                        probs, preds = torch.max(outputs, 1)
 
                     loss = criterion(outputs, labels)
 
@@ -152,6 +161,7 @@ def train_model(
                     "best_loss": best_loss,
                     "best_acc": best_acc,
                     "best_balanced_acc": best_balanced_acc,
+                    "config": config,
                 }
                 torch.save(checkpoint, best_model_path)
                 print("Checkpoint saved:", best_model_path)
@@ -204,7 +214,8 @@ def main(config):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     set_seeds(config["seed"])
-    model_name = "DiT_S_LRP"
+
+    model_name = f"DiT_S_LRP_level={config['default']['level']}"
 
     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
@@ -216,14 +227,18 @@ def main(config):
     )
     model = deit_small_patch16_224(
         pretrained=config["default"]["pretrained"],
-        pretrained_path=config["PreTrained_path"],
-        num_classes=3,
+        # pretrained_path=config["PreTrained_path"],
+        num_classes=num_classes,
         add_hook=False,
     )
     model = model.to(device)
     print(model)
 
-    criterion = nn.CrossEntropyLoss()
+    if num_classes == 2:
+        criterion = nn.BCEWithLogitsLoss(reduction="none")
+    else:
+        criterion = nn.CrossEntropyLoss()
+
     optimizer = optim.Adam(get_params_groups(model), lr=1e-4, weight_decay=1e-5)
     scheduler = LinearWarmup(
         optimizer,
@@ -243,6 +258,7 @@ def main(config):
         optimizer,
         scheduler,
         device,
+        model_name,
         config,
     )
 
@@ -250,31 +266,29 @@ def main(config):
     training_results.to_csv(
         os.path.join(
             config["output_folder_path"],
-            f"Training_log_{model_name}_{num_epoch}_random_holdout.csv",
+            f"Training_log_{model_name}_random_holdout.csv",
         ),
         index=False,
     )
     validation_results.to_csv(
         os.path.join(
             config["output_folder_path"],
-            f"Validation_log_{model_name}_{num_epoch}_random_holdout.csv",
+            f"Validation_log_{model_name}_random_holdout.csv",
         ),
         index=False,
     )
 
-    val_metrics, val_metrics_binary_SA, _ = eval_model(
+    val_metrics, _ = eval_model(
         model,
         dataloaders,
         dataset_sizes,
+        num_classes,
         device,
         config["default"]["level"],
         model_name,
         config,
         save_preds=True,
     )
-
-    print("validation metrics (Binary Sensative Attribute):")
-    print(val_metrics_binary_SA)
 
     print("validation metrics:")
     print(val_metrics)

@@ -181,10 +181,11 @@ def main(config):
 
         model_name = f"DeiT-S_LRP_PIter{prun_iter_cnt}"
 
-        val_metrics, val_metrics_binary_SA, _ = eval_model(
+        val_metrics, _ = eval_model(
             pruned_model,
             dataloaders,
             dataset_sizes,
+            num_classes
             device,
             config["default"]["level"],
             model_name,
