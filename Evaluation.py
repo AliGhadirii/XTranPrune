@@ -82,11 +82,6 @@ def eval_model(
                 topk_p.append((_.cpu()).tolist())
                 topk_n.append(preds5.cpu().tolist())
 
-            print(preds.shape)
-            print(classes.shape)
-            print(preds)
-            print(classes)
-            print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
             running_corrects += torch.sum(preds == classes.data)
             running_balanced_acc_sum += (
                 balanced_accuracy_score(classes.data.cpu(), preds.cpu())
