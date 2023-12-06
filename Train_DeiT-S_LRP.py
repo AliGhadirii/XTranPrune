@@ -272,33 +272,54 @@ def main(config):
         steps_per_epoch=len(dataloaders["train"]),
     )
 
-    model, training_results, validation_results = train_model(
-        dataloaders,
-        dataset_sizes,
-        num_classes,
-        model,
-        criterion,
-        optimizer,
-        scheduler,
-        device,
-        model_name,
-        config,
-    )
+    if config["default"]["mode"] == "eval":
+        best_model_path = os.path.join(
+            config["output_folder_path"], f"{model_name}_checkpoint_BASE.pth"
+        )
+        print("EVAL MODE: Loading the weights from ", best_model_path)
 
-    training_results.to_csv(
-        os.path.join(
-            config["output_folder_path"],
-            f"Training_log_{model_name}_random_holdout.csv",
-        ),
-        index=False,
-    )
-    validation_results.to_csv(
-        os.path.join(
-            config["output_folder_path"],
-            f"Validation_log_{model_name}_random_holdout.csv",
-        ),
-        index=False,
-    )
+        checkpoint = torch.load(best_model_path)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        best_loss = checkpoint["best_loss"]
+        best_acc = checkpoint["best_acc"]
+        best_balanced_acc = checkpoint["best_balanced_acc"]
+        leading_epoch = checkpoint["leading_epoch"]
+
+        print(
+            "Best epoch {}: Loss: {:.4f} Acc: {:.4f} Balanced Accuracy: {:.4f} ".format(
+                leading_epoch, best_loss, best_acc, best_balanced_acc
+            )
+        )
+    else:
+        model, training_results, validation_results = train_model(
+            dataloaders,
+            dataset_sizes,
+            num_classes,
+            model,
+            criterion,
+            optimizer,
+            scheduler,
+            device,
+            model_name,
+            config,
+        )
+
+        training_results.to_csv(
+            os.path.join(
+                config["output_folder_path"],
+                f"Training_log_{model_name}_random_holdout.csv",
+            ),
+            index=False,
+        )
+        validation_results.to_csv(
+            os.path.join(
+                config["output_folder_path"],
+                f"Validation_log_{model_name}_random_holdout.csv",
+            ),
+            index=False,
+        )
 
     val_metrics, _ = eval_model(
         model,
