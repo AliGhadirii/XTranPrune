@@ -74,7 +74,7 @@ def eval_model(
                 preds = (probs > theshold).to(torch.int32)
             else:
                 all_probs = torch.nn.functional.softmax(outputs, dim=1)
-                probs, preds = torch.max(outputs, 1)
+                probs, preds = torch.max(all_probs, 1)
 
             if level == "low":
                 _, preds5 = torch.topk(all_probs, 3)  # topk values, topk indices
