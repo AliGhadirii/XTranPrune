@@ -74,7 +74,7 @@ def eval_model(
                 preds = (probs > theshold).to(torch.int32)
             else:
                 all_probs = torch.nn.functional.softmax(outputs, dim=1)
-                probs, preds = torch.topk(all_probs, 1)  # topk values, topk indices
+                probs, preds = torch.max(outputs, 1)
 
             if level == "low":
                 _, preds5 = torch.topk(all_probs, 3)  # topk values, topk indices
@@ -82,6 +82,11 @@ def eval_model(
                 topk_p.append((_.cpu()).tolist())
                 topk_n.append(preds5.cpu().tolist())
 
+            print(preds.shape)
+            print(classes.shape)
+            print(preds)
+            print(classes)
+            print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
             running_corrects += torch.sum(preds == classes.data)
             running_balanced_acc_sum += (
                 balanced_accuracy_score(classes.data.cpu(), preds.cpu())
