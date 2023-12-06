@@ -15,7 +15,11 @@ from Datasets.dataloaders import get_fitz17k_dataloaders
 from Models.ViT_LRP.ViT_LRP import deit_small_patch16_224
 from Utils.Misc_utils import set_seeds, LinearWarmup
 from Utils.transformers_utils import get_params_groups
-from Evaluation import eval_model
+from Utils.Metrics import find_threshold
+from Evaluation import eval_model_SABranch
+
+import warnings
+from sklearn.exceptions import UndefinedMetricWarning
 
 
 def train_model(
@@ -31,14 +35,15 @@ def train_model(
     config,
 ):
     since = time.time()
-    batch_size = config["default"]["batch_size"]
 
     training_results = []
     validation_results = []
     start_epoch = 0
     best_acc = 0
 
-    best_model_path = os.path.join(config["output_folder_path"], f"{model_name}.pth")
+    best_model_path = os.path.join(
+        config["output_folder_path"], f"{model_name}_checkpoint.pth"
+    )
 
     if os.path.isfile(best_model_path):
         print("Resuming training from:", best_model_path)
@@ -75,23 +80,41 @@ def train_model(
 
             print(f"Current phase: {phase}")
             # Iterate over data
-            for batch in dataloaders[phase]:
+            for idx, batch in enumerate(dataloaders[phase]):
                 # Send inputs and labels to the device
                 inputs = batch["image"].to(device)
-                labels = batch["fitzpatrick"]
+                labels = batch["fitzpatrick_binary"]
 
-                labels = torch.from_numpy(np.asarray(labels)).to(device)
+                labels = torch.from_numpy(np.asarray(labels)).unsqueeze(1).to(device)
 
                 # Zero the gradients
                 optimizer.zero_grad()
+
+                def handle_warning(
+                    message, category, filename, lineno, file=None, line=None
+                ):
+                    print("Warning:", message)
+                    print("Additional Information:")
+                    print(f"Phase: {phase}, batch idx: {idx}")
+
+                # Filter warnings to catch the specific warning types
+                warnings.filterwarnings("always", category=UndefinedMetricWarning)
+
+                # Set the custom function to handle the warning
+                warnings.showwarning = handle_warning
 
                 # Forward
                 with torch.set_grad_enabled(phase == "train"):
                     inputs = inputs.float()
                     outputs = model(inputs)
-                    _, preds = torch.max(outputs, 1)
 
-                    loss = criterion(outputs, labels)
+                    probs = nn.functional.sigmoid(outputs)
+                    theshold = find_threshold(
+                        probs.cpu().data.numpy(), labels.cpu().data.numpy()
+                    )
+                    preds = (probs > theshold).to(torch.int32)
+
+                    loss = criterion(outputs, labels.to(torch.float32))
 
                     # Backward + optimize only if in the training phase
                     if phase == "train":
@@ -150,6 +173,7 @@ def train_model(
                     "best_loss": best_loss,
                     "best_acc": best_acc,
                     "best_balanced_acc": best_balanced_acc,
+                    "config": config,
                 }
                 torch.save(checkpoint, best_model_path)
                 print("Checkpoint saved:", best_model_path)
@@ -202,7 +226,7 @@ def main(config):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     set_seeds(config["seed"])
-    model_name = "DiT_S_LRP_2SA"
+    model_name = "DiT_S_LRP_2SABranch"
 
     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
@@ -215,14 +239,18 @@ def main(config):
 
     model = deit_small_patch16_224(
         pretrained=config["default"]["pretrained"],
-        pretrained_path=config["PreTrained_path"],
-        num_classes=2 if config["default"]["binary_subgroup"] else 6,
+        # pretrained_path=config["PreTrained_path"],
+        num_classes=num_classes,
         add_hook=False,
     )
     model = model.to(device)
     print(model)
 
-    criterion = nn.CrossEntropyLoss()
+    if num_classes == 2:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss()
+
     optimizer = optim.Adam(get_params_groups(model), lr=1e-4, weight_decay=1e-5)
     scheduler = LinearWarmup(
         optimizer,
@@ -246,35 +274,30 @@ def main(config):
         config,
     )
 
-    num_epoch = config["default"]["n_epochs"]
     training_results.to_csv(
         os.path.join(
             config["output_folder_path"],
-            f"Training_log_{model_name}_{num_epoch}_random_holdout.csv",
+            f"Training_log_{model_name}_random_holdout.csv",
         ),
         index=False,
     )
     validation_results.to_csv(
         os.path.join(
             config["output_folder_path"],
-            f"Validation_log_{model_name}_{num_epoch}_random_holdout.csv",
+            f"Validation_log_{model_name}_random_holdout.csv",
         ),
         index=False,
     )
 
-    val_metrics, _ = eval_model(
+    val_metrics, _ = eval_model_SABranch(
         model,
         dataloaders,
         dataset_sizes,
         device,
-        config["default"]["level"],
         model_name,
         config,
         save_preds=True,
     )
-
-    print("validation metrics:")
-    print(val_metrics)
 
 
 if __name__ == "__main__":

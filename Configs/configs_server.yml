@@ -1,6 +1,6 @@
 ---
 seed: 42
-output_folder_path: /home/ali/Outputs/SkinFormer_baseline_2class/
+output_folder_path: /home/ali/Outputs/SkinFormer_2SABranch/
 root_image_dir: /home/ali/Datasets/Fitz17k/Images/
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
 num_workers: 1
@@ -8,7 +8,7 @@ default:
   batch_size: 64
   n_epochs: 50
   pretrained: True
-  level: binary           # level of label: high, mid, low, binary
+  level: fitzpatrick_binary           # level of label: high, mid, low, binary, fitzpatrick, or fitzpatrick_binary
 prune:
   main_br_path: /content/drive/MyDrive/SkinFormer/Outputs/LRP/DeiT-S_LRP_checkpoint_BASE.pth
   SA_br_path: /content/drive/MyDrive/SkinFormer/Outputs/LRP/DeiT-S_LRP_checkpoint_6SA_detection.pth

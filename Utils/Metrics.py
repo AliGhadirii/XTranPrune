@@ -225,39 +225,22 @@ def cal_metrics(df):
     }
 
 
-# adapted from https://github.com/LalehSeyyed/Underdiagnosis_NatMed/blob/main/CXP/classification/predictions.py
-# and https://github.com/MLforHealth/CXR_Fairness/blob/master/cxr_fairness/metrics.py
 def find_threshold(outputs, labels):
-    # to find this thresold, first we get the precision and recall without this, from there we calculate f1 score,
-    # using f1score, we found this theresold which has best precsision and recall.  Then this threshold activation
-    # are used to calculate our binary output.
+    # Calculate precision and recall values for different thresholds
+    precision, recall, thresholds = precision_recall_curve(labels, outputs)
 
-    PRED_LABEL = ["disease"]
+    # Calculate F1-score for different thresholds, handling division by zero
+    non_zero_denominator_mask = (precision + recall) != 0
+    f1_scores = np.zeros_like(precision)
+    f1_scores[non_zero_denominator_mask] = (
+        2
+        * (precision[non_zero_denominator_mask] * recall[non_zero_denominator_mask])
+        / (precision[non_zero_denominator_mask] + recall[non_zero_denominator_mask])
+    )
 
-    # create empty dfs
-    thrs = []
+    # Find the index of the threshold with the highest F1-score
+    best_threshold_index = np.argmax(f1_scores)
 
-    for j in range(0, len(outputs)):
-        thisrow = {}
-        truerow = {}
-
-        # iterate over each entry in prediction vector; each corresponds to
-        # individual label
-        for k in range(len(PRED_LABEL)):
-            thisrow["prob_" + PRED_LABEL[k]] = outputs[j]
-            truerow[PRED_LABEL[k]] = labels[j]
-
-    for column in PRED_LABEL:
-        thisrow = {}
-        thisrow["label"] = column
-        thisrow["bestthr"] = np.nan
-
-        p, r, t = precision_recall_curve(labels, outputs)
-        # Choose the best threshold based on the highest F1 measure
-        f1 = np.multiply(2, np.divide(np.multiply(p, r), np.add(r, p)))
-        bestthr = t[np.where(f1 == max(f1))]
-        thrs.append(bestthr)
-
-        thisrow["bestthr"] = bestthr[0]
-
-    return bestthr[0]
+    # Get the best threshold
+    best_threshold = thresholds[best_threshold_index]
+    return best_threshold

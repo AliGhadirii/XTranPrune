@@ -18,6 +18,9 @@ from Utils.transformers_utils import get_params_groups
 from Utils.Metrics import find_threshold
 from Evaluation import eval_model
 
+import warnings
+from sklearn.exceptions import UndefinedMetricWarning
+
 
 def train_model(
     dataloaders,
@@ -32,7 +35,6 @@ def train_model(
     config,
 ):
     since = time.time()
-    batch_size = config["default"]["batch_size"]
 
     training_results = []
     validation_results = []
@@ -79,15 +81,33 @@ def train_model(
 
             print(f"Current phase: {phase}")
             # Iterate over data
-            for batch in dataloaders[phase]:
+            for idx, batch in enumerate(dataloaders[phase]):
                 # Send inputs and labels to the device
                 inputs = batch["image"].to(device)
                 labels = batch[config["default"]["level"]]
 
-                labels = torch.from_numpy(np.asarray(labels)).to(device)
+                if num_classes == 2:
+                    labels = (
+                        torch.from_numpy(np.asarray(labels)).unsqueeze(1).to(device)
+                    )
+                else:
+                    labels = torch.from_numpy(np.asarray(labels)).to(device)
 
                 # Zero the gradients
                 optimizer.zero_grad()
+
+                def handle_warning(
+                    message, category, filename, lineno, file=None, line=None
+                ):
+                    print("Warning:", message)
+                    print("Additional Information:")
+                    print(f"Phase: {phase}, batch idx: {idx}")
+
+                # Filter warnings to catch the specific warning types
+                warnings.filterwarnings("always", category=UndefinedMetricWarning)
+
+                # Set the custom function to handle the warning
+                warnings.showwarning = handle_warning
 
                 # Forward
                 with torch.set_grad_enabled(phase == "train"):
@@ -99,11 +119,13 @@ def train_model(
                         theshold = find_threshold(
                             probs.cpu().data.numpy(), labels.cpu().data.numpy()
                         )
-                        preds = probs > theshold
+                        preds = (probs > theshold).to(torch.int32)
+
+                        loss = criterion(outputs, labels.to(torch.float32))
                     else:
                         probs, preds = torch.max(outputs, 1)
 
-                    loss = criterion(outputs, labels)
+                        loss = criterion(outputs, labels)
 
                     # Backward + optimize only if in the training phase
                     if phase == "train":
@@ -236,7 +258,7 @@ def main(config):
     print(model)
 
     if num_classes == 2:
-        criterion = nn.BCEWithLogitsLoss(reduction="none")
+        criterion = nn.BCEWithLogitsLoss()
     else:
         criterion = nn.CrossEntropyLoss()
 
@@ -263,7 +285,6 @@ def main(config):
         config,
     )
 
-    num_epoch = config["default"]["n_epochs"]
     training_results.to_csv(
         os.path.join(
             config["output_folder_path"],
