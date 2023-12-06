@@ -15,7 +15,11 @@ from Datasets.dataloaders import get_fitz17k_dataloaders
 from Models.ViT_LRP.ViT_LRP import deit_small_patch16_224
 from Utils.Misc_utils import set_seeds, LinearWarmup
 from Utils.transformers_utils import get_params_groups
+from Utils.Metrics import find_threshold
 from Evaluation import eval_model
+
+import warnings
+from sklearn.exceptions import UndefinedMetricWarning
 
 
 def train_model(
@@ -27,10 +31,10 @@ def train_model(
     optimizer,
     scheduler,
     device,
+    model_name,
     config,
 ):
     since = time.time()
-    batch_size = config["default"]["batch_size"]
 
     training_results = []
     validation_results = []
@@ -38,7 +42,7 @@ def train_model(
     best_acc = 0
 
     best_model_path = os.path.join(
-        config["output_folder_path"], "DeiT-S_LRP_checkpoint_BASE.pth"
+        config["output_folder_path"], f"{model_name}_checkpoint_BASE.pth"
     )
 
     if os.path.isfile(best_model_path):
@@ -58,7 +62,7 @@ def train_model(
         print("-" * 20)
 
         since_epoch = time.time()
-        
+
         # Each epoch has a training and validation phase
         for phase in ["train", "val"]:
             # Set the model to the training mode
@@ -77,23 +81,51 @@ def train_model(
 
             print(f"Current phase: {phase}")
             # Iterate over data
-            for batch in dataloaders[phase]:
+            for idx, batch in enumerate(dataloaders[phase]):
                 # Send inputs and labels to the device
                 inputs = batch["image"].to(device)
-                labels = batch["high"]
+                labels = batch[config["default"]["level"]]
 
-                labels = torch.from_numpy(np.asarray(labels)).to(device)
+                if num_classes == 2:
+                    labels = (
+                        torch.from_numpy(np.asarray(labels)).unsqueeze(1).to(device)
+                    )
+                else:
+                    labels = torch.from_numpy(np.asarray(labels)).to(device)
 
                 # Zero the gradients
                 optimizer.zero_grad()
+
+                def handle_warning(
+                    message, category, filename, lineno, file=None, line=None
+                ):
+                    print("Warning:", message)
+                    print("Additional Information:")
+                    print(f"Phase: {phase}, batch idx: {idx}")
+
+                # Filter warnings to catch the specific warning types
+                warnings.filterwarnings("always", category=UndefinedMetricWarning)
+
+                # Set the custom function to handle the warning
+                warnings.showwarning = handle_warning
 
                 # Forward
                 with torch.set_grad_enabled(phase == "train"):
                     inputs = inputs.float()
                     outputs = model(inputs)
-                    _, preds = torch.max(outputs, 1)
 
-                    loss = criterion(outputs, labels)
+                    if num_classes == 2:
+                        probs = nn.functional.sigmoid(outputs)
+                        theshold = find_threshold(
+                            probs.cpu().data.numpy(), labels.cpu().data.numpy()
+                        )
+                        preds = (probs > theshold).to(torch.int32)
+
+                        loss = criterion(outputs, labels.to(torch.float32))
+                    else:
+                        probs, preds = torch.max(outputs, 1)
+
+                        loss = criterion(outputs, labels)
 
                     # Backward + optimize only if in the training phase
                     if phase == "train":
@@ -152,15 +184,17 @@ def train_model(
                     "best_loss": best_loss,
                     "best_acc": best_acc,
                     "best_balanced_acc": best_balanced_acc,
+                    "config": config,
                 }
                 torch.save(checkpoint, best_model_path)
                 print("Checkpoint saved:", best_model_path)
-        
+
         time_elapsed_epoch = time.time() - since_epoch
         print(
-        "Epoch {} completed in {:.0f}m {:.0f}s".format(
-            epoch, time_elapsed_epoch // 60, time_elapsed_epoch % 60
-        ))
+            "Epoch {} completed in {:.0f}m {:.0f}s".format(
+                epoch, time_elapsed_epoch // 60, time_elapsed_epoch % 60
+            )
+        )
 
     # Time
     time_elapsed = time.time() - since
@@ -203,27 +237,31 @@ def main(config):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     set_seeds(config["seed"])
-    model_name = "DiT_S_LRP"
+
+    model_name = f"DiT_S_LRP_level={config['default']['level']}"
 
     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         level=config["default"]["level"],
-        binary_subgroup=config["default"]["binary_subgroup"],
         holdout_set="random_holdout",
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )
     model = deit_small_patch16_224(
         pretrained=config["default"]["pretrained"],
-        pretrained_path=config["PreTrained_path"],
-        num_classes=3,
-        add_hook=False
+        # pretrained_path=config["PreTrained_path"],
+        num_classes=num_classes,
+        add_hook=False,
     )
     model = model.to(device)
     print(model)
 
-    criterion = nn.CrossEntropyLoss()
+    if num_classes == 2:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss()
+
     optimizer = optim.Adam(get_params_groups(model), lr=1e-4, weight_decay=1e-5)
     scheduler = LinearWarmup(
         optimizer,
@@ -234,47 +272,66 @@ def main(config):
         steps_per_epoch=len(dataloaders["train"]),
     )
 
-    model, training_results, validation_results = train_model(
+    if config["default"]["mode"] == "eval":
+        best_model_path = os.path.join(
+            config["output_folder_path"], f"{model_name}_checkpoint_BASE.pth"
+        )
+        print("EVAL MODE: Loading the weights from ", best_model_path)
+
+        checkpoint = torch.load(best_model_path)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        best_loss = checkpoint["best_loss"]
+        best_acc = checkpoint["best_acc"]
+        best_balanced_acc = checkpoint["best_balanced_acc"]
+        leading_epoch = checkpoint["leading_epoch"]
+
+        print(
+            "Best epoch {}: Loss: {:.4f} Acc: {:.4f} Balanced Accuracy: {:.4f} ".format(
+                leading_epoch, best_loss, best_acc, best_balanced_acc
+            )
+        )
+    else:
+        model, training_results, validation_results = train_model(
+            dataloaders,
+            dataset_sizes,
+            num_classes,
+            model,
+            criterion,
+            optimizer,
+            scheduler,
+            device,
+            model_name,
+            config,
+        )
+
+        training_results.to_csv(
+            os.path.join(
+                config["output_folder_path"],
+                f"Training_log_{model_name}_random_holdout.csv",
+            ),
+            index=False,
+        )
+        validation_results.to_csv(
+            os.path.join(
+                config["output_folder_path"],
+                f"Validation_log_{model_name}_random_holdout.csv",
+            ),
+            index=False,
+        )
+
+    val_metrics, _ = eval_model(
+        model,
         dataloaders,
         dataset_sizes,
         num_classes,
-        model,
-        criterion,
-        optimizer,
-        scheduler,
-        device,
-        config,
-    )
-
-    num_epoch = config["default"]["n_epochs"]
-    training_results.to_csv(
-        os.path.join(
-            config["output_folder_path"],
-            f"Training_log_{model_name}_{num_epoch}_random_holdout.csv",
-        ),
-        index=False,
-    )
-    validation_results.to_csv(
-        os.path.join(
-            config["output_folder_path"],
-            f"Validation_log_{model_name}_{num_epoch}_random_holdout.csv",
-        ),
-        index=False,
-    )
-
-    val_metrics, val_metrics_binary_SA, _ = eval_model(
-        model,
-        dataloaders,
-        dataset_sizes,
         device,
         config["default"]["level"],
         model_name,
         config,
         save_preds=True,
     )
-
-    print("validation metrics (Binary Sensative Attribute):")
-    print(val_metrics_binary_SA)
 
     print("validation metrics:")
     print(val_metrics)

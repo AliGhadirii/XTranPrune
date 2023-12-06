@@ -48,9 +48,14 @@ class Fitz17kDataset:
         high = self.df.loc[self.df.index[idx], "high"]
         mid = self.df.loc[self.df.index[idx], "mid"]
         low = self.df.loc[self.df.index[idx], "low"]
-        fitzpatrick = self.df.loc[
-            self.df.index[idx], "fitzpatrick"
-        ]  # Range: [1, 6] (it is changed to [0, 5] in dataloaders.py)
+        binary = self.df.loc[self.df.index[idx], "binary"]
+        fitzpatrick_scale = self.df.loc[
+            self.df.index[idx], "fitzpatrick_scale"
+        ]  # Range: [1, 6]
+        fitzpatrick = self.df.loc[self.df.index[idx], "fitzpatrick"]  # Range: [0, 5]
+        fitzpatrick_binary = self.df.loc[
+            self.df.index[idx], "fitzpatrick_binary"
+        ]  # Range: [0, 1]
 
         if self.transform:
             image = self.transform(image)
@@ -59,7 +64,10 @@ class Fitz17kDataset:
             "high": high,
             "mid": mid,
             "low": low,
+            "binary": binary,
             "hasher": hasher,
+            "fitzpatrick_scale": fitzpatrick_scale,
             "fitzpatrick": fitzpatrick,
+            "fitzpatrick_binary": fitzpatrick_binary,
         }
         return sample

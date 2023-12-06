@@ -268,19 +268,17 @@ def main(config):
         index=False,
     )
 
-    val_metrics, val_metrics_binary_SA, _ = eval_model(
+    val_metrics, _ = eval_model(
         model,
         dataloaders,
         dataset_sizes,
+        num_classes,
         device,
         config["default"]["level"],
         model_name,
         config,
         save_preds=True,
     )
-
-    print("validation metrics (Binary Sensative Attribute):")
-    print(val_metrics_binary_SA)
 
     print("validation metrics:")
     print(val_metrics)

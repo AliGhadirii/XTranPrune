@@ -126,7 +126,6 @@ def main(config):
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         level=config["default"]["level"],
-        binary_subgroup=config["prune"]["binary_subgroup"],
         holdout_set="random_holdout",
         batch_size=config["prune"]["batch_size"],
         num_workers=1,
@@ -136,7 +135,6 @@ def main(config):
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         level=config["default"]["level"],
-        binary_subgroup=config["default"]["binary_subgroup"],
         holdout_set="random_holdout",
         batch_size=config["default"]["batch_size"],
         num_workers=1,
@@ -181,12 +179,13 @@ def main(config):
                 pruned_model, SA_model, p_dataloaders, device, config
             )
 
-        model_name = f"DeiT-S_LRP_PIter{prun_iter_cnt}"
+        model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt}"
 
-        val_metrics, val_metrics_binary_SA, _ = eval_model(
+        val_metrics, _ = eval_model(
             pruned_model,
             dataloaders,
             dataset_sizes,
+            num_classes,
             device,
             config["default"]["level"],
             model_name,
@@ -196,14 +195,14 @@ def main(config):
 
         if val_metrics[config["prune"]["target_bias_metric"]] > best_bias_metric:
             best_bias_metric = val_metrics[config["prune"]["target_bias_metric"]]
-            
+
             # Save the best model
-            print("New leading model val metrics, saving the weights...\n")
+            print("New leading val metrics, saving the weights...\n")
             print(val_metrics)
 
             best_model_path = os.path.join(
                 config["output_folder_path"],
-                f"DeiT-S_LRP_checkpoint_prune_Iter={prun_iter_cnt}.pth",
+                f"DeiT_S_LRP_checkpoint_prune_Iter={prun_iter_cnt}.pth",
             )
             checkpoint = {
                 "config": config,
@@ -216,7 +215,9 @@ def main(config):
             # Reset the counter
             consecutive_no_improvement = 0
         else:
-            print(f"No improvements in Iteration {prun_iter_cnt}, val metrics: \n")
+            print(
+                f"No improvements observed in Iteration {prun_iter_cnt}, val metrics: \n"
+            )
             print(val_metrics)
             consecutive_no_improvement += 1
 

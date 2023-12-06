@@ -9,7 +9,11 @@ from sklearn.model_selection import train_test_split
 from .datasets import Fitz17kDataset
 
 
-def train_val_split_fitz17k(Generated_csv_path, holdout_set="random_holdout"):
+def train_val_split_fitz17k(
+    Generated_csv_path,
+    holdout_set="random_holdout",
+    level="high",
+):
     """Performs train-validation split for the Fitzpatrick17k dataset"""
 
     df = pd.read_csv(Generated_csv_path)
@@ -20,9 +24,20 @@ def train_val_split_fitz17k(Generated_csv_path, holdout_set="random_holdout"):
         test = df2[df2.qc == "1 Diagnostic"]
 
     elif holdout_set == "random_holdout":
-        train, test, y_train, y_test = train_test_split(
-            df, df["low"], test_size=0.2, random_state=64, stratify=df["low"]
-        )
+        if "fitzpatrick" in level:
+            train, test, y_train, y_test = train_test_split(
+                df,
+                df["fitzpatrick"],
+                test_size=0.2,
+                random_state=64,
+                stratify=df["fitzpatrick"],
+            )
+            print("INFO: train test split stratified by fitzpatrick column")
+        else:
+            train, test, y_train, y_test = train_test_split(
+                df, df["low"], test_size=0.2, random_state=64, stratify=df["low"]
+            )
+            print("INFO: train test split stratified by low column")
 
     elif holdout_set == "dermaamin":  # train with b
         # only choose those skin conditions in both dermaamin and non dermaamin
@@ -112,7 +127,6 @@ def get_fitz17k_dataloaders(
     root_image_dir,
     Generated_csv_path,
     level="high",
-    binary_subgroup=True,
     fitz_filter=None,
     holdout_set="random_holdout",
     batch_size=64,
@@ -121,22 +135,7 @@ def get_fitz17k_dataloaders(
     """Returns a dictionary of data loaders for the Fitzpatrick17k dataset, for the training, and validation sets."""
 
     train_df, val_df = train_val_split_fitz17k(
-        Generated_csv_path, holdout_set=holdout_set
-    )
-
-    def map_fitzpatrick(value, binary_subgroup):
-        if binary_subgroup:
-            # Map values 1, 2, 3 to 0, and 4, 5, 6 to 1
-            return 0 if value in [1, 2, 3] else 1
-        else:
-            # No mapping needed, just start the values from 0
-            return value - 1
-
-    train_df["fitzpatrick"] = train_df["fitzpatrick"].apply(
-        lambda x: map_fitzpatrick(x, binary_subgroup)
-    )
-    val_df["fitzpatrick"] = val_df["fitzpatrick"].apply(
-        lambda x: map_fitzpatrick(x, binary_subgroup)
+        Generated_csv_path, holdout_set=holdout_set, level=level
     )
 
     if fitz_filter is not None:
