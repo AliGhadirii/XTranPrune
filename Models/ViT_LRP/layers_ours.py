@@ -2,9 +2,28 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-__all__ = ['forward_hook', 'Clone', 'Add', 'Cat', 'ReLU', 'GELU', 'Dropout', 'BatchNorm2d', 'Linear', 'MaxPool2d',
-           'AdaptiveAvgPool2d', 'AvgPool2d', 'Conv2d', 'Sequential', 'safe_divide', 'einsum', 'Softmax', 'IndexSelect',
-           'LayerNorm', 'AddEye']
+__all__ = [
+    "forward_hook",
+    "Clone",
+    "Add",
+    "Cat",
+    "ReLU",
+    "GELU",
+    "Dropout",
+    "BatchNorm2d",
+    "Linear",
+    "MaxPool2d",
+    "AdaptiveAvgPool2d",
+    "AvgPool2d",
+    "Conv2d",
+    "Sequential",
+    "safe_divide",
+    "einsum",
+    "Softmax",
+    "IndexSelect",
+    "LayerNorm",
+    "AddEye",
+]
 
 
 def safe_divide(a, b):
@@ -45,6 +64,7 @@ class RelProp(nn.Module):
     def relprop(self, R, alpha):
         return R
 
+
 class RelPropSimple(RelProp):
     def relprop(self, R, alpha):
         Z = self.forward(self.X)
@@ -59,22 +79,28 @@ class RelPropSimple(RelProp):
             outputs = self.X * (C[0])
         return outputs
 
+
 class AddEye(RelPropSimple):
     # input of shape B, C, seq_len, seq_len
     def forward(self, input):
         return input + torch.eye(input.shape[2]).expand_as(input).to(input.device)
 
+
 class ReLU(nn.ReLU, RelProp):
     pass
+
 
 class GELU(nn.GELU, RelProp):
     pass
 
+
 class Softmax(nn.Softmax, RelProp):
     pass
 
+
 class LayerNorm(nn.LayerNorm, RelProp):
     pass
+
 
 class Dropout(nn.Dropout, RelProp):
     pass
@@ -83,8 +109,10 @@ class Dropout(nn.Dropout, RelProp):
 class MaxPool2d(nn.MaxPool2d, RelPropSimple):
     pass
 
+
 class LayerNorm(nn.LayerNorm, RelProp):
     pass
+
 
 class AdaptiveAvgPool2d(nn.AdaptiveAvgPool2d, RelPropSimple):
     pass
@@ -119,17 +147,20 @@ class Add(RelPropSimple):
 
         return outputs
 
+
 class einsum(RelPropSimple):
     def __init__(self, equation):
         super().__init__()
         self.equation = equation
+
     def forward(self, *operands):
         return torch.einsum(self.equation, *operands)
 
+
 class IndexSelect(RelProp):
     def forward(self, inputs, dim, indices):
-        self.__setattr__('dim', dim)
-        self.__setattr__('indices', indices)
+        self.__setattr__("dim", dim)
+        self.__setattr__("indices", indices)
 
         return torch.index_select(inputs, dim, indices)
 
@@ -147,10 +178,9 @@ class IndexSelect(RelProp):
         return outputs
 
 
-
 class Clone(RelProp):
     def forward(self, input, num):
-        self.__setattr__('num', num)
+        self.__setattr__("num", num)
         outputs = []
         for _ in range(num):
             outputs.append(input)
@@ -168,9 +198,10 @@ class Clone(RelProp):
 
         return R
 
+
 class Cat(RelProp):
     def forward(self, inputs, dim):
-        self.__setattr__('dim', dim)
+        self.__setattr__("dim", dim)
         return torch.cat(inputs, dim)
 
     def relprop(self, R, alpha):
@@ -191,12 +222,17 @@ class Sequential(nn.Sequential):
             R = m.relprop(R, alpha)
         return R
 
+
 class BatchNorm2d(nn.BatchNorm2d, RelProp):
     def relprop(self, R, alpha):
         X = self.X
         beta = 1 - alpha
         weight = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3) / (
-            (self.running_var.unsqueeze(0).unsqueeze(2).unsqueeze(3).pow(2) + self.eps).pow(0.5))
+            (
+                self.running_var.unsqueeze(0).unsqueeze(2).unsqueeze(3).pow(2)
+                + self.eps
+            ).pow(0.5)
+        )
         Z = X * weight + 1e-9
         S = R / Z
         Ca = S * weight
@@ -235,27 +271,63 @@ class Conv2d(nn.Conv2d, RelProp):
         Z = self.forward(self.X)
 
         output_padding = self.X.size()[2] - (
-                (Z.size()[2] - 1) * self.stride[0] - 2 * self.padding[0] + self.kernel_size[0])
+            (Z.size()[2] - 1) * self.stride[0]
+            - 2 * self.padding[0]
+            + self.kernel_size[0]
+        )
 
-        return F.conv_transpose2d(DY, weight, stride=self.stride, padding=self.padding, output_padding=output_padding)
+        return F.conv_transpose2d(
+            DY,
+            weight,
+            stride=self.stride,
+            padding=self.padding,
+            output_padding=output_padding,
+        )
 
     def relprop(self, R, alpha):
         if self.X.shape[1] == 3:
             pw = torch.clamp(self.weight, min=0)
             nw = torch.clamp(self.weight, max=0)
             X = self.X
-            L = self.X * 0 + \
-                torch.min(torch.min(torch.min(self.X, dim=1, keepdim=True)[0], dim=2, keepdim=True)[0], dim=3,
-                          keepdim=True)[0]
-            H = self.X * 0 + \
-                torch.max(torch.max(torch.max(self.X, dim=1, keepdim=True)[0], dim=2, keepdim=True)[0], dim=3,
-                          keepdim=True)[0]
-            Za = torch.conv2d(X, self.weight, bias=None, stride=self.stride, padding=self.padding) - \
-                 torch.conv2d(L, pw, bias=None, stride=self.stride, padding=self.padding) - \
-                 torch.conv2d(H, nw, bias=None, stride=self.stride, padding=self.padding) + 1e-9
+            L = (
+                self.X * 0
+                + torch.min(
+                    torch.min(
+                        torch.min(self.X, dim=1, keepdim=True)[0], dim=2, keepdim=True
+                    )[0],
+                    dim=3,
+                    keepdim=True,
+                )[0]
+            )
+            H = (
+                self.X * 0
+                + torch.max(
+                    torch.max(
+                        torch.max(self.X, dim=1, keepdim=True)[0], dim=2, keepdim=True
+                    )[0],
+                    dim=3,
+                    keepdim=True,
+                )[0]
+            )
+            Za = (
+                torch.conv2d(
+                    X, self.weight, bias=None, stride=self.stride, padding=self.padding
+                )
+                - torch.conv2d(
+                    L, pw, bias=None, stride=self.stride, padding=self.padding
+                )
+                - torch.conv2d(
+                    H, nw, bias=None, stride=self.stride, padding=self.padding
+                )
+                + 1e-9
+            )
 
             S = R / Za
-            C = X * self.gradprop2(S, self.weight) - L * self.gradprop2(S, pw) - H * self.gradprop2(S, nw)
+            C = (
+                X * self.gradprop2(S, self.weight)
+                - L * self.gradprop2(S, pw)
+                - H * self.gradprop2(S, nw)
+            )
             R = C
         else:
             beta = alpha - 1
@@ -265,8 +337,12 @@ class Conv2d(nn.Conv2d, RelProp):
             nx = torch.clamp(self.X, max=0)
 
             def f(w1, w2, x1, x2):
-                Z1 = F.conv2d(x1, w1, bias=None, stride=self.stride, padding=self.padding)
-                Z2 = F.conv2d(x2, w2, bias=None, stride=self.stride, padding=self.padding)
+                Z1 = F.conv2d(
+                    x1, w1, bias=None, stride=self.stride, padding=self.padding
+                )
+                Z2 = F.conv2d(
+                    x2, w2, bias=None, stride=self.stride, padding=self.padding
+                )
                 S1 = safe_divide(R, Z1)
                 S2 = safe_divide(R, Z2)
                 C1 = x1 * self.gradprop(Z1, x1, S1)[0]

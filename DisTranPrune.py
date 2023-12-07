@@ -122,10 +122,19 @@ def main(config):
 
     set_seeds(config["seed"])
 
-    p_dataloaders, p_dataset_sizes, p_num_classes = get_fitz17k_dataloaders(
+    main_dataloaders, main_dataset_sizes, main_num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
-        level=config["default"]["level"],
+        level=config["prune"]["main_level"],
+        holdout_set="random_holdout",
+        batch_size=config["prune"]["batch_size"],
+        num_workers=1,
+    )
+
+    SA_dataloaders, SA_dataset_sizes, SA_num_classes = get_fitz17k_dataloaders(
+        root_image_dir=config["root_image_dir"],
+        Generated_csv_path=config["Generated_csv_path"],
+        level=config["prune"]["SA_level"],
         holdout_set="random_holdout",
         batch_size=config["prune"]["batch_size"],
         num_workers=1,
@@ -142,16 +151,14 @@ def main(config):
 
     # load both models
     main_model = deit_small_patch16_224(
-        pretrained=False,
-        num_classes=3,
+        num_classes=main_num_classes,
         add_hook=True,
         weight_path=config["prune"]["main_br_path"],
     )
     main_model = main_model.eval().to(device)
 
     SA_model = deit_small_patch16_224(
-        pretrained=False,
-        num_classes=6,
+        num_classes=SA_num_classes,
         add_hook=True,
         weight_path=config["prune"]["SA_br_path"],
     )
