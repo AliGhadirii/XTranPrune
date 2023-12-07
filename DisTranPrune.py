@@ -12,24 +12,21 @@ from Models.ViT_LRP.ViT_LRP import deit_small_patch16_224
 from Evaluation import eval_model
 
 
-def describe_tensor(tensor):
-    if not isinstance(tensor, torch.Tensor):
-        raise ValueError("Input must be a PyTorch tensor")
+def DisTranPrune(
+    main_model, SA_model, main_dataloader, SA_dataloader, device, config, verbose=2
+):
+    main_DL_iter = iter(main_dataloader)
+    SA_DL_iter = iter(SA_dataloader)
 
-    stats = {
-        "Mean": tensor.mean().item(),
-        "Std Deviation": tensor.std().item(),
-        "Minimum Value": tensor.min().item(),
-        "Maximum Value": tensor.max().item(),
-    }
+    ###############################  Getting the attention masks for all modules ###############################
 
-    return stats
-
-
-def DisTranPrune(main_model, SA_model, dataloaders, device, config):
-    train_DL_iter = iter(dataloaders["train"])
-    # HARDCODED: TOBE fixed
-    blk_attrs_shape = (12, 6, 197, 197)
+    num_tokens = main_model.patch_embed.num_patches + 1
+    blk_attrs_shape = (
+        main_model.depth,
+        main_model.num_heads,
+        num_tokens,
+        num_tokens,
+    )
     main_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
     SA_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
 
@@ -38,19 +35,23 @@ def DisTranPrune(main_model, SA_model, dataloaders, device, config):
         total=config["prune"]["num_batch_per_iter"],
         desc="Generating masks",
     ):
-        batch = next(train_DL_iter)
-        inputs = batch["image"].to(device)
-        labels = batch["high"].to(device)
+        main_BR_batch = next(main_DL_iter)
+        main_inputs = main_BR_batch["image"].to(device)
+        main_labels = main_BR_batch[config["prune"]["main_level"]].to(device)
+
+        SA_BR_batch = next(SA_DL_iter)
+        SA_inputs = SA_BR_batch["image"].to(device)
+        SA_labels = SA_BR_batch[config["prune"]["SA_level"]].to(device)
 
         main_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
         SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
 
-        for i in range(inputs.shape[0]):  # iterate over batch size
+        for i in range(main_inputs.shape[0]):  # iterate over batch size
             cam, main_blk_attrs_input = main_model.generate_LRP(
-                input=inputs[i].unsqueeze(0), index=labels[i]
+                input=main_inputs[i].unsqueeze(0), index=main_labels[i]
             )
             cam, SA_blk_attrs_input = SA_model.generate_LRP(
-                input=inputs[i].unsqueeze(0), index=labels[i]
+                input=SA_inputs[i].unsqueeze(0), index=SA_labels[i]
             )
 
             main_blk_attrs_batch = main_blk_attrs_batch + main_blk_attrs_input.detach()
@@ -58,16 +59,19 @@ def DisTranPrune(main_model, SA_model, dataloaders, device, config):
 
             main_blk_attrs_input = None
             SA_blk_attrs_input = None
+            cam = None
 
         # Averaging the block importances for the batch
-        main_blk_attrs_batch = main_blk_attrs_batch / inputs.shape[0]
-        SA_blk_attrs_batch = SA_blk_attrs_batch / inputs.shape[0]
+        main_blk_attrs_batch = main_blk_attrs_batch / main_inputs.shape[0]
+        SA_blk_attrs_batch = SA_blk_attrs_batch / SA_inputs.shape[0]
 
         main_blk_attrs_iter = main_blk_attrs_iter + main_blk_attrs_batch
         SA_blk_attrs_iter = SA_blk_attrs_iter + SA_blk_attrs_batch
 
     main_blk_attrs_iter = main_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
     SA_blk_attrs_iter = SA_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
+
+    ###############################  Generating the pruning mask ###############################
 
     prun_mask = []
     for blk_idx in range(main_blk_attrs_iter.shape[0]):
@@ -77,14 +81,10 @@ def DisTranPrune(main_model, SA_model, dataloaders, device, config):
             main_attrs_flt = main_blk_attrs_iter[blk_idx][h].flatten()
 
             threshold = torch.quantile(
-                main_attrs_flt, config["prune"]["main_mask_quantile"]
-            )  # (1- this param)% of the most important main params will be retained
-
-            # print(f"threshold={threshold}")
+                main_attrs_flt, 1 - config["prune"]["main_mask_retain_rate"]
+            )  # (this param)% of the most important main params will be retained
 
             main_mask = (main_blk_attrs_iter[blk_idx][h] < threshold).float()
-
-            # print(f"number of params allowed to be pruned {main_mask.sum()}")
 
             # Generating the pruning mask from SA branch
             can_be_pruned = SA_blk_attrs_iter[blk_idx][h] * main_mask
@@ -97,21 +97,38 @@ def DisTranPrune(main_model, SA_model, dataloaders, device, config):
             top_k_values, top_k_indices = torch.topk(can_be_pruned_flt, k)
             prun_mask_blk_head = torch.ones_like(can_be_pruned_flt)
             prun_mask_blk_head[top_k_indices] = 0
-            # HARDCODED: TOBE fixed
-            prun_mask_blk_head = prun_mask_blk_head.reshape((197, 197))
+
+            prun_mask_blk_head = prun_mask_blk_head.reshape(
+                (main_blk_attrs_iter.shape[2], main_blk_attrs_iter.shape[3])
+            )
             prun_mask_blk.append(prun_mask_blk_head)
 
-            # print(
-            #     f"number of params pruned in head {h}: {(197*197) - prun_mask_blk_head.sum()}/{(197*197)}"
-            # )
+            if verbose == 2:
+                print(
+                    f"#params pruned in head {h}: {(num_tokens*num_tokens) - prun_mask_blk_head.sum()}/{(num_tokens*num_tokens)} 
+                    | Rate: {((num_tokens*num_tokens) - prun_mask_blk_head.sum())/(num_tokens*num_tokens)}"
+                )
+            
         prun_mask_blk = torch.stack(prun_mask_blk, dim=0)
         prun_mask.append(prun_mask_blk)
-        # print(
-        #     f"+++++++++++++++++++++++++++++ Block {blk_idx} +++++++++++++++++++++++++++++"
-        # )
+        if verbose == 2:
+            print(
+                f"@@@ #params pruned in block {blk_idx}: {(num_tokens*num_tokens*main_model.num_heads) - prun_mask_blk.sum()}/{(num_tokens*num_tokens*main_model.num_heads)} 
+                | Rate: {((num_tokens*num_tokens*main_model.num_heads) - prun_mask_blk.sum())/(num_tokens*num_tokens*main_model.num_heads)}"
+            )
 
     prun_mask = torch.stack(prun_mask, dim=0)
+    
+    prev_mask = main_model.get_attn_mask()
+    
+    if verbose>0 and prev_mask is not None:
+    
+        num_pruned_prev = (prev_mask.shape[0]*prev_mask.shape[1]*prev_mask.shape[2]*prev_mask.shape[3]) - prev_mask.sum()
+        num_pruned_new = (prun_mask.shape[0]*prun_mask.shape[1]*prun_mask.shape[2]*prun_mask.shape[3]) - prun_mask.sum()
+        print(f"New #pruned_parameters - Previous #pruned_parameters = {num_pruned_new} - {num_pruned_prev} = {num_pruned_new - num_pruned_prev} ")
+    
     main_model.set_attn_mask(prun_mask)
+
     return main_model
 
 
@@ -179,11 +196,21 @@ def main(config):
 
         if prun_iter_cnt == 0:
             pruned_model = DisTranPrune(
-                main_model, SA_model, p_dataloaders, device, config
+                main_model=main_model,
+                SA_model=SA_model,
+                main_dataloader=main_dataloaders["train"],
+                SA_dataloader=SA_dataloaders["train"],
+                device=device,
+                config=config,
             )
         else:
             pruned_model = DisTranPrune(
-                pruned_model, SA_model, p_dataloaders, device, config
+                main_model=pruned_model,
+                SA_model=SA_model,
+                main_dataloader=main_dataloaders["train"],
+                SA_dataloader=SA_dataloaders["train"],
+                device=device,
+                config=config,
             )
 
         model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt}"
