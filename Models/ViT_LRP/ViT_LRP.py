@@ -349,6 +349,9 @@ class VisionTransformer(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
 
+        self.depth = depth
+        self.num_heads = num_heads
+
         self.blocks = nn.ModuleList(
             [
                 Block(
@@ -418,6 +421,8 @@ class VisionTransformer(nn.Module):
     def get_attn_mask(self):
         attn_mask = []
         for i in range(self.depth):
+            if self.blocks[i].attn.get_attn_mask() is None:
+                return None
             attn_mask.append(self.blocks[i].attn.get_attn_mask().detach())
         attn_mask = torch.stack(attn_mask, dim=0)
 
@@ -676,7 +681,7 @@ def deit_small_patch16_224(
     elif weight_path != None:
         checkpoint = torch.load(weight_path)
         model.load_state_dict(checkpoint["model_state_dict"])
-        print(f"Weights load from {weight_path}")
+        print(f"Weights loaded from {weight_path}")
     else:
         print("No weights loaded, using random weights...")
     return model

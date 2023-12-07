@@ -105,28 +105,40 @@ def DisTranPrune(
 
             if verbose == 2:
                 print(
-                    f"#params pruned in head {h}: {(num_tokens*num_tokens) - prun_mask_blk_head.sum()}/{(num_tokens*num_tokens)} 
+                    f"#params pruned in head {h+1}: {(num_tokens*num_tokens) - prun_mask_blk_head.sum()}/{(num_tokens*num_tokens)} \
                     | Rate: {((num_tokens*num_tokens) - prun_mask_blk_head.sum())/(num_tokens*num_tokens)}"
                 )
-            
+
         prun_mask_blk = torch.stack(prun_mask_blk, dim=0)
         prun_mask.append(prun_mask_blk)
         if verbose == 2:
             print(
-                f"@@@ #params pruned in block {blk_idx}: {(num_tokens*num_tokens*main_model.num_heads) - prun_mask_blk.sum()}/{(num_tokens*num_tokens*main_model.num_heads)} 
+                f"@@@ #params pruned in block {blk_idx+1}: {(num_tokens*num_tokens*main_model.num_heads) - prun_mask_blk.sum()}/{(num_tokens*num_tokens*main_model.num_heads)} \
                 | Rate: {((num_tokens*num_tokens*main_model.num_heads) - prun_mask_blk.sum())/(num_tokens*num_tokens*main_model.num_heads)}"
             )
 
     prun_mask = torch.stack(prun_mask, dim=0)
-    
-    prev_mask = main_model.get_attn_mask()
 
-    if verbose>0 and prev_mask is not None:
-    
-        num_pruned_prev = (prev_mask.shape[0]*prev_mask.shape[1]*prev_mask.shape[2]*prev_mask.shape[3]) - prev_mask.sum()
-        num_pruned_new = (prun_mask.shape[0]*prun_mask.shape[1]*prun_mask.shape[2]*prun_mask.shape[3]) - prun_mask.sum()
-        print(f"New #pruned_parameters - Previous #pruned_parameters = {num_pruned_new} - {num_pruned_prev} = {num_pruned_new - num_pruned_prev} ")
-    
+    prev_mask = main_model.get_attn_mask()
+    new_mask = prev_mask * prev_mask
+
+    if verbose > 0 and prev_mask is not None:
+        num_pruned_prev = (
+            prev_mask.shape[0]
+            * prev_mask.shape[1]
+            * prev_mask.shape[2]
+            * prev_mask.shape[3]
+        ) - prev_mask.sum()
+        num_pruned_new = (
+            new_mask.shape[0]
+            * new_mask.shape[1]
+            * new_mask.shape[2]
+            * new_mask.shape[3]
+        ) - new_mask.sum()
+        print(
+            f"New #pruned_parameters - Previous #pruned_parameters = {num_pruned_new} - {num_pruned_prev} = {num_pruned_new - num_pruned_prev} "
+        )
+
     main_model.set_attn_mask(prun_mask)
 
     return main_model
@@ -191,7 +203,7 @@ def main(config):
         since = time.time()
 
         print(
-            f"+++++++++++++++++++++++++++++ Pruning Iteration {prun_iter_cnt} +++++++++++++++++++++++++++++"
+            f"+++++++++++++++++++++++++++++ Pruning Iteration {prun_iter_cnt+1} +++++++++++++++++++++++++++++"
         )
 
         if prun_iter_cnt == 0:
@@ -213,7 +225,7 @@ def main(config):
                 config=config,
             )
 
-        model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt}"
+        model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt+1}"
 
         val_metrics, _ = eval_model(
             pruned_model,
@@ -236,7 +248,7 @@ def main(config):
 
             best_model_path = os.path.join(
                 config["output_folder_path"],
-                f"DeiT_S_LRP_checkpoint_prune_Iter={prun_iter_cnt}.pth",
+                f"{model_name}.pth",
             )
             checkpoint = {
                 "config": config,
@@ -250,7 +262,7 @@ def main(config):
             consecutive_no_improvement = 0
         else:
             print(
-                f"No improvements observed in Iteration {prun_iter_cnt}, val metrics: \n"
+                f"No improvements observed in Iteration {prun_iter_cnt+1}, val metrics: \n"
             )
             print(val_metrics)
             consecutive_no_improvement += 1
