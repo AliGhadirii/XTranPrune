@@ -120,7 +120,7 @@ def DisTranPrune(
     prun_mask = torch.stack(prun_mask, dim=0)
     
     prev_mask = main_model.get_attn_mask()
-    
+
     if verbose>0 and prev_mask is not None:
     
         num_pruned_prev = (prev_mask.shape[0]*prev_mask.shape[1]*prev_mask.shape[2]*prev_mask.shape[3]) - prev_mask.sum()
@@ -160,7 +160,7 @@ def main(config):
     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
-        level=config["default"]["level"],
+        level=config["prune"]["main_level"],
         holdout_set="random_holdout",
         batch_size=config["default"]["batch_size"],
         num_workers=1,
@@ -221,7 +221,7 @@ def main(config):
             dataset_sizes,
             num_classes,
             device,
-            config["default"]["level"],
+            config["prune"]["main_level"],
             model_name,
             config,
             save_preds=True,
