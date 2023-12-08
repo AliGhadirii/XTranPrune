@@ -3,10 +3,12 @@ import yaml
 import time
 import os
 from tqdm import tqdm
+import pandas as pd
 
 import torch
 
 from Utils.Misc_utils import set_seeds
+from Utils.Metrics import plot_metrics
 from Datasets.dataloaders import get_fitz17k_dataloaders
 from Models.ViT_LRP.ViT_LRP import deit_small_patch16_224
 from Evaluation import eval_model
@@ -149,6 +151,9 @@ def main(config):
     print("Starting... \n")
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    print("Pruning configs:")
+    print(config["prune"])
+
     set_seeds(config["seed"])
 
     main_dataloaders, main_dataset_sizes, main_num_classes = get_fitz17k_dataloaders(
@@ -243,20 +248,7 @@ def main(config):
             best_bias_metric = val_metrics[config["prune"]["target_bias_metric"]]
 
             # Save the best model
-            print("New leading val metrics, saving the weights...\n")
-            print(val_metrics)
-
-            best_model_path = os.path.join(
-                config["output_folder_path"],
-                f"{model_name}.pth",
-            )
-            checkpoint = {
-                "config": config,
-                "leading_val_metrics": val_metrics,
-                "model_state_dict": pruned_model.state_dict(),
-            }
-            torch.save(checkpoint, best_model_path)
-            print("Checkpoint saved:", best_model_path)
+            print("Achieved new leading val metrics\n")
 
             # Reset the counter
             consecutive_no_improvement = 0
@@ -264,8 +256,20 @@ def main(config):
             print(
                 f"No improvements observed in Iteration {prun_iter_cnt+1}, val metrics: \n"
             )
-            print(val_metrics)
             consecutive_no_improvement += 1
+
+        print(val_metrics)
+
+        model_path = os.path.join(
+            config["output_folder_path"],
+            f"{model_name}.pth",
+        )
+        checkpoint = {
+            "config": config,
+            "leading_val_metrics": val_metrics,
+            "model_state_dict": pruned_model.state_dict(),
+        }
+        torch.save(checkpoint, model_path)
 
         prun_iter_cnt += 1
 
@@ -275,6 +279,26 @@ def main(config):
                 time_elapsed // 60, time_elapsed % 60
             )
         )
+
+        if prun_iter_cnt == 0:
+            val_metrics_df = pd.DataFrame([val_metrics])
+        else:
+            val_metrics_df = pd.concat(
+                [val_metrics_df, pd.DataFrame([val_metrics])], ignore_index=True
+            )
+        val_metrics_df.to_csv(
+            os.path.join(config["output_folder_path"], f"Pruning_metrics.csv"),
+            index=False,
+        )
+
+    plot_metrics(val_metrics_df, ["acc_avg", "PQD", "DPM", "EOM"], "positive", config)
+    plot_metrics(val_metrics_df, ["EOpp0", "EOpp1", "EOdd", "NAR"], "negative", config)
+    plot_metrics(
+        val_metrics_df,
+        ["PQD_binary", "DPM_binary", "EOM_binary", "NAR_binary"],
+        "binary",
+        config,
+    )
 
 
 if __name__ == "__main__":

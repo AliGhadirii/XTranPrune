@@ -1,5 +1,7 @@
+import os
 import numpy as np
 from sklearn.metrics import roc_curve, auc, confusion_matrix, precision_recall_curve
+import matplotlib.pyplot as plt
 
 
 def cal_metrics(df):
@@ -244,3 +246,41 @@ def find_threshold(outputs, labels):
     # Get the best threshold
     best_threshold = thresholds[best_threshold_index]
     return best_threshold
+
+
+def plot_metrics(df, selected_metrics, postfix, config):
+    """
+    Plot selected metrics over iterations with annotations for each point.
+
+    Args:
+    - df (pd.DataFrame): Dataframe containing metrics for each iteration.
+    - selected_metrics (list of str): List of metric names to include in the plot.
+    """
+    iterations = list(range(1, len(df) + 1))
+    plt.figure(figsize=(len(df), len(df) * 0.6))
+
+    for metric in selected_metrics:
+        plt.plot(iterations, df[metric], label=metric)
+        for i, txt in enumerate(df[metric]):
+            plt.annotate(
+                f"{txt:.3f}",
+                (iterations[i], df[metric][i]),
+                textcoords="offset points",
+                xytext=(0, 5),
+                ha="center",
+                fontsize=12,
+            )
+
+    plt.xlabel("Iterations", fontsize=14)
+    plt.ylabel("Metric Values", fontsize=14)
+    plt.title("Metrics Over Iterations", fontsize=16)
+    plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=12)
+    plt.xticks(iterations, fontsize=12)  # Set discrete values on the x-axis
+    plt.yticks(fontsize=12)
+    plt.grid(True)
+
+    plt.savefig(
+        os.path.join(
+            config["output_folder_path"], f"DeiT_S_LRP_pruning_metrics_{postfix}.png"
+        )
+    )

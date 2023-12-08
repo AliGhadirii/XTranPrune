@@ -1,6 +1,6 @@
 ---
 seed: 42
-output_folder_path: /home/ali/Outputs/Pruning/PruningEXP1/
+output_folder_path: /home/ali/Outputs/Pruning/PruningEXP2/
 root_image_dir: /home/ali/Datasets/Fitz17k/Images/
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
 num_workers: 1
@@ -20,5 +20,7 @@ prune:
   target_bias_metric: EOM
   num_batch_per_iter: 500
   max_consecutive_no_improvement: 5
-  main_mask_retain_rate: 0.8  # (this param)% of the most important main params will be retained
-  pruning_rate: 0.2           # showing the percentage of parameters prunded out of the nodes allowed by main branch
+  main_mask_retain_rate: 0.9  # (this param)% of the most important main params will be retained
+  pruning_rate: 0.3           # showing the percentage of parameters prunded out of the nodes allowed by main branch
+
+  
