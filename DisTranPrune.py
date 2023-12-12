@@ -4,6 +4,7 @@ import time
 import os
 from tqdm import tqdm
 import pandas as pd
+import shutil
 
 import torch
 
@@ -122,9 +123,9 @@ def DisTranPrune(
     prun_mask = torch.stack(prun_mask, dim=0)
 
     prev_mask = main_model.get_attn_mask()
-    new_mask = prev_mask * prev_mask
 
     if verbose > 0 and prev_mask is not None:
+        new_mask = prev_mask * prun_mask
         num_pruned_prev = (
             prev_mask.shape[0]
             * prev_mask.shape[1]
@@ -153,6 +154,11 @@ def main(config):
 
     print("Pruning configs:")
     print(config["prune"])
+
+    shutil.copy(
+        "Configs/configs_server.yml",
+        os.path.join(config["output_folder_path"], "configs.yml"),
+    )
 
     set_seeds(config["seed"])
 
@@ -201,6 +207,7 @@ def main(config):
     prun_iter_cnt = 0
     consecutive_no_improvement = 0
     best_bias_metric = config["prune"]["bias_metric_prev"]
+    val_metrics_df = None
 
     while (
         consecutive_no_improvement <= config["prune"]["max_consecutive_no_improvement"]
@@ -244,19 +251,44 @@ def main(config):
             save_preds=True,
         )
 
-        if val_metrics[config["prune"]["target_bias_metric"]] > best_bias_metric:
-            best_bias_metric = val_metrics[config["prune"]["target_bias_metric"]]
+        if config["prune"]["target_bias_metric"] in [
+            "AUC_Gap",
+            "EOpp0",
+            "EOpp1",
+            "EOdd",
+            "NAR",
+        ]:
+            if val_metrics[config["prune"]["target_bias_metric"]] < best_bias_metric:
+                best_bias_metric = val_metrics[config["prune"]["target_bias_metric"]]
 
-            # Save the best model
-            print("Achieved new leading val metrics\n")
+                # Save the best model
+                print(
+                    f'Achieved new leading val metrics: {config["prune"]["target_bias_metric"]}={best_bias_metric} \n'
+                )
 
-            # Reset the counter
-            consecutive_no_improvement = 0
+                # Reset the counter
+                consecutive_no_improvement = 0
+            else:
+                print(
+                    f"No improvements observed in Iteration {prun_iter_cnt+1}, val metrics: \n"
+                )
+                consecutive_no_improvement += 1
         else:
-            print(
-                f"No improvements observed in Iteration {prun_iter_cnt+1}, val metrics: \n"
-            )
-            consecutive_no_improvement += 1
+            if val_metrics[config["prune"]["target_bias_metric"]] > best_bias_metric:
+                best_bias_metric = val_metrics[config["prune"]["target_bias_metric"]]
+
+                # Save the best model
+                print(
+                    f'Achieved new leading val metrics: {config["prune"]["target_bias_metric"]}={best_bias_metric} \n'
+                )
+
+                # Reset the counter
+                consecutive_no_improvement = 0
+            else:
+                print(
+                    f"No improvements observed in Iteration {prun_iter_cnt+1}, val metrics: \n"
+                )
+                consecutive_no_improvement += 1
 
         print(val_metrics)
 
@@ -291,14 +323,19 @@ def main(config):
             index=False,
         )
 
-    plot_metrics(val_metrics_df, ["acc_avg", "PQD", "DPM", "EOM"], "positive", config)
-    plot_metrics(val_metrics_df, ["EOpp0", "EOpp1", "EOdd", "NAR"], "negative", config)
-    plot_metrics(
-        val_metrics_df,
-        ["PQD_binary", "DPM_binary", "EOM_binary", "NAR_binary"],
-        "binary",
-        config,
-    )
+        plot_metrics(val_metrics_df, ["PQD", "DPM", "EOM"], "positive", config)
+        plot_metrics(val_metrics_df, ["acc_avg", "acc_gap", "Min_acc"], "ACC", config)
+        plot_metrics(val_metrics_df, ["F1_score", "F1_gap", "Min_F1"], "F1", config)
+        plot_metrics(
+            val_metrics_df, ["EOpp0", "EOpp1", "EOdd", "NAR"], "negative", config
+        )
+        plot_metrics(val_metrics_df, ["AUC", "AUC_Gap", "AUC_min"], "AUC", config)
+        plot_metrics(
+            val_metrics_df,
+            ["PQD_binary", "DPM_binary", "EOM_binary", "NAR_binary"],
+            "binary",
+            config,
+        )
 
 
 if __name__ == "__main__":
