@@ -1,26 +1,23 @@
----
-seed: 42
-output_folder_path: /home/ali/Outputs/Pruning/PruningEXP12/
-root_image_dir: /home/ali/Datasets/Fitz17k/Images/
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
-num_workers: 1
 default:
-  mode: eval            # train, eval
   batch_size: 64
+  level: high
+  mode: eval
   n_epochs: 50
-  pretrained: True      # True, False
-  level: high           # level of label: low, mid, high, binary, fitzpatrick, or fitzpatrick_binary
+  pretrained: true
+num_workers: 1
+output_folder_path: /home/ali/Outputs/Pruning/PruningEXP28/
 prune:
-  main_br_path: /home/ali/Outputs/SkinFormer_baseline_3class/DiT_S_LRP_level=high_checkpoint_BASE.pth
   SA_br_path: /home/ali/Outputs/SkinFormer_2SABranch/DiT_S_LRP_2SABranch_checkpoint.pth
-  batch_size: 2
-  main_level: high
   SA_level: fitzpatrick_binary
+  batch_size: 2
   bias_metric_prev: 0.628
-  target_bias_metric: EOM
-  num_batch_per_iter: 500
+  main_br_path: /home/ali/Outputs/SkinFormer_baseline_3class/DiT_S_LRP_level=high_checkpoint_BASE.pth
+  main_level: high
+  main_mask_retain_rate: 0.7
   max_consecutive_no_improvement: 5
-  main_mask_retain_rate: 0.8  # (this param)% of the most important main params will be retained
-  pruning_rate: 0.6           # showing the percentage of parameters prunded out of the nodes allowed by main branch
-
-  
+  num_batch_per_iter: 500
+  pruning_rate: 0.8
+  target_bias_metric: EOM
+root_image_dir: /home/ali/Datasets/Fitz17k/Images/
+seed: 42

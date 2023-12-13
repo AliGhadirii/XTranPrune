@@ -5,6 +5,7 @@ from sklearn.metrics import (
     precision_recall_curve,
     roc_auc_score,
     f1_score,
+    accuracy_score,
 )
 
 import matplotlib.pyplot as plt
@@ -73,23 +74,44 @@ def cal_metrics(df):
     labels_array = labels_array[type_indices]
     predictions_array = predictions_array[type_indices]
 
-    # avg acc, acc per type
-    correct_array_sumc, labels_array_sumc = np.sum(correct_array, axis=1), np.sum(
-        labels_array, axis=1
-    )  # sum skin conditions
-    acc_array = (correct_array_sumc / labels_array_sumc) * 100
-    avg_acc = (np.sum(correct_array) / np.sum(labels_array)) * 100
+    # Accuracy, accuracy per type
+    Accuracy = accuracy_score(df["label"], df["prediction"]) * 100
 
-    # f1_score, f1-score per type
-    F1 = f1_score(df["label"], df["prediction"], average="weighted") * 100
-
-    F1_array = []
+    acc_array = []
     for i in range(6):
-        F1_array.append(
+        acc_array.append(
+            accuracy_score(
+                df[df["fitzpatrick"] == i]["label"],
+                df[df["fitzpatrick"] == i]["prediction"],
+            )
+            * 100
+        )
+    acc_array = np.array(acc_array)
+
+    # f1_score, f1-score per type (Weighted average)
+    F1_W = f1_score(df["label"], df["prediction"], average="weighted") * 100
+
+    F1_W_array = []
+    for i in range(6):
+        F1_W_array.append(
             f1_score(
                 df[df["fitzpatrick"] == i]["label"],
                 df[df["fitzpatrick"] == i]["prediction"],
                 average="weighted",
+            )
+            * 100
+        )
+
+    # f1_score, f1-score per type (Macro average)
+    F1_Mac = f1_score(df["label"], df["prediction"], average="macro") * 100
+
+    F1_Mac_array = []
+    for i in range(6):
+        F1_Mac_array.append(
+            f1_score(
+                df[df["fitzpatrick"] == i]["label"],
+                df[df["fitzpatrick"] == i]["prediction"],
+                average="macro",
             )
             * 100
         )
@@ -238,14 +260,15 @@ def cal_metrics(df):
     ) / acc_array_binary.mean()
 
     return {
-        "acc_avg": avg_acc,
+        "accuracy": Accuracy,
         "acc_per_type": acc_array,
-        "acc_gap": max(acc_array) - min(acc_array),
-        "Min_acc": min(acc_array),
-        "F1_score": F1,
-        "F1_per_type": F1_array,
-        "F1_gap": max(F1_array) - min(F1_array),
-        "Min_F1": min(F1_array),
+        "acc_gap": acc_array.max() - acc_array.min(),
+        "F1_W": F1_W,
+        "F1_per_type_W": F1_W_array,
+        "F1_W_gap": max(F1_W_array) - min(F1_W_array),
+        "F1_Mac": F1_Mac,
+        "F1_per_type_Mac": F1_Mac_array,
+        "F1_Mac_gap": max(F1_Mac_array) - min(F1_Mac_array),
         "PQD": PQD,
         "DPM": DPM,
         "EOM": EOM,
