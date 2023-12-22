@@ -11,11 +11,11 @@ import torch
 from Utils.Misc_utils import set_seeds
 from Utils.Metrics import plot_metrics
 from Datasets.dataloaders import get_fitz17k_dataloaders
-from Models.ViT_LRP.ViT_LRP import deit_small_patch16_224
+from Models.ViT_LRP import deit_small_patch16_224
 from Evaluation import eval_model
 
 
-def DisTranPrune(
+def XTranPrune(
     main_model, SA_model, main_dataloader, SA_dataloader, device, config, verbose=2
 ):
     main_DL_iter = iter(main_dataloader)
@@ -219,7 +219,7 @@ def main(config):
         )
 
         if prun_iter_cnt == 0:
-            pruned_model = DisTranPrune(
+            pruned_model = XTranPrune(
                 main_model=main_model,
                 SA_model=SA_model,
                 main_dataloader=main_dataloaders["train"],
@@ -228,7 +228,7 @@ def main(config):
                 config=config,
             )
         else:
-            pruned_model = DisTranPrune(
+            pruned_model = XTranPrune(
                 main_model=pruned_model,
                 SA_model=SA_model,
                 main_dataloader=main_dataloaders["train"],
