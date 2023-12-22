@@ -1,5 +1,14 @@
+import os
 import numpy as np
-from sklearn.metrics import roc_curve, auc, confusion_matrix, precision_recall_curve
+from sklearn.metrics import (
+    confusion_matrix,
+    precision_recall_curve,
+    roc_auc_score,
+    f1_score,
+    accuracy_score,
+)
+
+import matplotlib.pyplot as plt
 
 
 def cal_metrics(df):
@@ -17,6 +26,8 @@ def cal_metrics(df):
     labels_array = np.zeros((6, len(df["label"].unique())))
     correct_array = np.zeros((6, len(df["label"].unique())))
     predictions_array = np.zeros((6, len(df["label"].unique())))
+    prob_array = [[] for i in range(len(df["fitzpatrick"].unique()))]
+    label_array_per_fitz = [[] for i in range(len(df["fitzpatrick"].unique()))]
 
     labels_array_binary = np.zeros((2, len(df["label"].unique())))
     correct_array_binary = np.zeros((2, len(df["label"].unique())))
@@ -45,6 +56,8 @@ def cal_metrics(df):
             correct_array_binary[int(type_binary), int(label)] += 1
 
         if is_binaryCLF:
+            prob_array[int(type)].append(df.iloc[i]["prediction_probability"])
+            label_array_per_fitz[int(type)].append(label)
             if prediction == 0:
                 positive_list.append(1.0 - df.iloc[i]["prediction_probability"])
             else:
@@ -61,12 +74,49 @@ def cal_metrics(df):
     labels_array = labels_array[type_indices]
     predictions_array = predictions_array[type_indices]
 
-    # avg acc, acc per type
-    correct_array_sumc, labels_array_sumc = np.sum(correct_array, axis=1), np.sum(
-        labels_array, axis=1
-    )  # sum skin conditions
-    acc_array = correct_array_sumc / labels_array_sumc
-    avg_acc = np.sum(correct_array) / np.sum(labels_array)
+    # Accuracy, accuracy per type
+    Accuracy = accuracy_score(df["label"], df["prediction"]) * 100
+
+    acc_array = []
+    for i in range(6):
+        acc_array.append(
+            accuracy_score(
+                df[df["fitzpatrick"] == i]["label"],
+                df[df["fitzpatrick"] == i]["prediction"],
+            )
+            * 100
+        )
+    acc_array = np.array(acc_array)
+
+    # f1_score, f1-score per type (Weighted average)
+    F1_W = f1_score(df["label"], df["prediction"], average="weighted") * 100
+
+    F1_W_array = []
+    for i in range(6):
+        F1_W_array.append(
+            f1_score(
+                df[df["fitzpatrick"] == i]["label"],
+                df[df["fitzpatrick"] == i]["prediction"],
+                average="weighted",
+            )
+            * 100
+        )
+    F1_W_array = np.array(F1_W_array)
+
+    # f1_score, f1-score per type (Macro average)
+    F1_Mac = f1_score(df["label"], df["prediction"], average="macro") * 100
+
+    F1_Mac_array = []
+    for i in range(6):
+        F1_Mac_array.append(
+            f1_score(
+                df[df["fitzpatrick"] == i]["label"],
+                df[df["fitzpatrick"] == i]["prediction"],
+                average="macro",
+            )
+            * 100
+        )
+    F1_Mac_array = np.array(F1_Mac_array)
 
     # PQD
     PQD = acc_array.min() / acc_array.max()
@@ -82,6 +132,27 @@ def cal_metrics(df):
     # NAR
     NAR = (acc_array.max() - acc_array.min()) / acc_array.mean()
 
+    # NFR (Weighted)
+    NFR_W = (F1_W_array.max() - F1_W_array.min()) / F1_W_array.mean()
+
+    # NAR (Macro)
+    NFR_Mac = (F1_Mac_array.max() - F1_Mac_array.min()) / F1_Mac_array.mean()
+
+    # AUC
+    if is_binaryCLF:
+        # AUC per skin type
+        AUC = roc_auc_score(df["label"], df["prediction_probability"]) * 100
+        AUC_per_type = []
+        for i in range(len(label_array_per_fitz)):
+            AUC_per_type.append(
+                roc_auc_score(label_array_per_fitz[i], prob_array[i]) * 100
+            )
+        AUC_Gap = max(AUC_per_type) - min(AUC_per_type)
+    else:
+        AUC = -1
+        AUC_per_type = [-1, -1, -1, -1, -1, -1]
+        AUC_Gap = -1
+
     ##############################          Metrics with binary Sensative attribute         ##############################
 
     correct_array_binary = correct_array_binary[type_indices_binary]
@@ -95,7 +166,7 @@ def cal_metrics(df):
         labels_array_binary, axis=1
     )  # sum skin conditions
     acc_array_binary = correct_array_sumc_binary / labels_array_sumc_binary
-    avg_acc_binary = np.sum(correct_array_binary) / np.sum(labels_array_binary)
+    avg_acc_binary = (np.sum(correct_array_binary) / np.sum(labels_array_binary)) * 100
 
     # PQD
     PQD_binary = acc_array_binary.min() / acc_array_binary.max()
@@ -196,18 +267,16 @@ def cal_metrics(df):
         acc_array_binary.max() - acc_array_binary.min()
     ) / acc_array_binary.mean()
 
-    # if is binary classification, output AUC
-    if is_binaryCLF:
-        fpr, tpr, threshold = roc_curve(
-            df["label"], positive_list, drop_intermediate=True
-        )
-        AUC = auc(fpr, tpr)
-    else:
-        AUC = -1
-
     return {
-        "acc_avg": avg_acc,
+        "accuracy": Accuracy,
         "acc_per_type": acc_array,
+        "acc_gap": acc_array.max() - acc_array.min(),
+        "F1_W": F1_W,
+        "F1_per_type_W": F1_W_array,
+        "F1_W_gap": max(F1_W_array) - min(F1_W_array),
+        "F1_Mac": F1_Mac,
+        "F1_per_type_Mac": F1_Mac_array,
+        "F1_Mac_gap": max(F1_Mac_array) - min(F1_Mac_array),
         "PQD": PQD,
         "DPM": DPM,
         "EOM": EOM,
@@ -215,7 +284,12 @@ def cal_metrics(df):
         "EOpp1": EOpp1,
         "EOdd": EOdd,
         "NAR": NAR,
+        "NFR_W": NFR_W,
+        "NFR_Mac": NFR_Mac,
         "AUC": AUC,
+        "AUC_per_type": AUC_per_type,
+        "AUC_Gap": AUC_Gap,
+        "AUC_min": min(AUC_per_type),
         "acc_avg_binary": avg_acc_binary,
         "acc_per_type_binary": acc_array_binary,
         "PQD_binary": PQD_binary,
@@ -244,3 +318,42 @@ def find_threshold(outputs, labels):
     # Get the best threshold
     best_threshold = thresholds[best_threshold_index]
     return best_threshold
+
+
+def plot_metrics(df, selected_metrics, postfix, config):
+    """
+    Plot selected metrics over iterations with annotations for each point.
+
+    Args:
+    - df (pd.DataFrame): Dataframe containing metrics for each iteration.
+    - selected_metrics (list of str): List of metric names to include in the plot.
+    """
+    iterations = list(range(1, len(df) + 1))
+    plt.figure(figsize=(len(df), len(df) * 0.6))
+
+    for metric in selected_metrics:
+        plt.plot(iterations, df[metric], label=metric)
+        for i, txt in enumerate(df[metric]):
+            plt.annotate(
+                f"{txt:.3f}",
+                (iterations[i], df[metric][i]),
+                textcoords="offset points",
+                xytext=(0, 5),
+                ha="center",
+                fontsize=12,
+            )
+
+    plt.xlabel("Iterations", fontsize=14)
+    plt.ylabel("Metric Values", fontsize=14)
+    plt.title("Metrics Over Iterations", fontsize=16)
+    plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=12)
+    plt.xticks(iterations, fontsize=12)  # Set discrete values on the x-axis
+    plt.yticks(fontsize=12)
+    plt.grid(True)
+
+    plt.savefig(
+        os.path.join(
+            config["output_folder_path"], f"DeiT_S_LRP_pruning_metrics_{postfix}.png"
+        )
+    )
+    # plt.close()

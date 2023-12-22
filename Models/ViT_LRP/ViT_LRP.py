@@ -162,12 +162,10 @@ class Attention(nn.Module):
             assert (
                 self.attn_mask.shape == mask.shape
             ), "Attention class set_attn_mask(): The shape of the mask is not correct."
-            print("#_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_#")
-            print(f"new mask 1's: {mask.sum()}")
-            print(f"old mask 1's: {self.attn_mask.sum()}")
-            self.attn_mask = torch.logical_or(self.attn_mask, mask).to(torch.float32)
-            print(f"Resulting mask 1's: {self.attn_mask.sum()}")
-            print("#_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_##_#_#")
+            self.attn_mask = self.attn_mask * mask
+
+    def get_attn_mask(self):
+        return self.attn_mask
 
     def forward(self, x):
         b, n, _, h = *x.shape, self.num_heads
@@ -181,18 +179,14 @@ class Attention(nn.Module):
         attn = self.softmax(dots)
         attn = self.attn_drop(attn)
 
+        if self.attn_mask is not None:
+            # element-wise multiplication of the mask of all h heads with the attention matrices of all h heads for all of the #batch_size records
+            # (we expand the mask to match the shape of the attention matrices which includes the batch demension)
+            attn = attn * self.attn_mask.expand(attn.shape)
+
         self.save_attn(attn)
         if attn.requires_grad and self.add_hook:
             attn.register_hook(self.save_attn_gradients)
-
-        if self.attn_mask is not None:
-            total_params_before = attn.numel()
-            attn = attn * self.attn_mask.expand(
-                attn.shape
-            )  # element-wise multiplication of the mask of all h heads with the attention matrices of all h heads for all of the #batch_size records
-            pruned_params = total_params_before - attn.nonzero().size(0)
-
-            # print(f"LOG: apprximate number of Pruned Parameters: {pruned_params//64}/{total_params_before//64}")
 
         out = self.matmul2([attn, v])
         out = rearrange(out, "b h n d -> b n (h d)")
@@ -355,6 +349,9 @@ class VisionTransformer(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
 
+        self.depth = depth
+        self.num_heads = num_heads
+
         self.blocks = nn.ModuleList(
             [
                 Block(
@@ -420,6 +417,16 @@ class VisionTransformer(nn.Module):
         ), "ERROR: Mask shape doesn't match the depth of the model."
         for i in range(self.depth):
             self.blocks[i].attn.set_attn_mask(mask[i])
+
+    def get_attn_mask(self):
+        attn_mask = []
+        for i in range(self.depth):
+            if self.blocks[i].attn.get_attn_mask() is None:
+                return None
+            attn_mask.append(self.blocks[i].attn.get_attn_mask().detach())
+        attn_mask = torch.stack(attn_mask, dim=0)
+
+        return attn_mask
 
     def forward(self, x):
         B = x.shape[0]
@@ -540,11 +547,17 @@ class VisionTransformer(nn.Module):
     ):
         output = self(input)
         kwargs = {"alpha": 1}
+
         if index == None:
             index = np.argmax(output.cpu().data.numpy(), axis=-1)
 
-        one_hot = np.zeros((1, output.size()[-1]), dtype=np.float32)
-        one_hot[0, index] = 1
+        if self.num_classes == 2:
+            one_hot = np.zeros((1, 1), dtype=np.float32)
+            one_hot[0, 0] = output.cpu().data.numpy()
+        else:
+            one_hot = np.zeros((1, output.size()[-1]), dtype=np.float32)
+            one_hot[0, index] = 1
+
         one_hot_vector = one_hot
         one_hot = torch.from_numpy(one_hot).requires_grad_(True)
         one_hot = torch.sum(one_hot.cuda() * output)
@@ -668,7 +681,7 @@ def deit_small_patch16_224(
     elif weight_path != None:
         checkpoint = torch.load(weight_path)
         model.load_state_dict(checkpoint["model_state_dict"])
-        print(f"Weights load from {weight_path}")
+        print(f"Weights loaded from {weight_path}")
     else:
         print("No weights loaded, using random weights...")
     return model
