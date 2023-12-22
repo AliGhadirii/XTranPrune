@@ -101,6 +101,7 @@ def cal_metrics(df):
             )
             * 100
         )
+    F1_W_array = np.array(F1_W_array)
 
     # f1_score, f1-score per type (Macro average)
     F1_Mac = f1_score(df["label"], df["prediction"], average="macro") * 100
@@ -115,6 +116,7 @@ def cal_metrics(df):
             )
             * 100
         )
+    F1_Mac_array = np.array(F1_Mac_array)
 
     # PQD
     PQD = acc_array.min() / acc_array.max()
@@ -129,6 +131,12 @@ def cal_metrics(df):
 
     # NAR
     NAR = (acc_array.max() - acc_array.min()) / acc_array.mean()
+
+    # NFR (Weighted)
+    NFR_W = (F1_W_array.max() - F1_W_array.min()) / F1_W_array.mean()
+
+    # NAR (Macro)
+    NFR_Mac = (F1_Mac_array.max() - F1_Mac_array.min()) / F1_Mac_array.mean()
 
     # AUC
     if is_binaryCLF:
@@ -276,6 +284,8 @@ def cal_metrics(df):
         "EOpp1": EOpp1,
         "EOdd": EOdd,
         "NAR": NAR,
+        "NFR_W": NFR_W,
+        "NFR_Mac": NFR_Mac,
         "AUC": AUC,
         "AUC_per_type": AUC_per_type,
         "AUC_Gap": AUC_Gap,

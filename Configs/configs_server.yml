@@ -1,23 +1,23 @@
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
+root_image_dir: /home/ali/Datasets/Fitz17k/Images/
+output_folder_path: /home/ali/Outputs/Pruning/Main_0.85/PruningEXP34_P0.4/
+seed: 42
+num_workers: 1
 default:
   batch_size: 64
   level: high
   mode: eval
   n_epochs: 50
   pretrained: true
-num_workers: 1
-output_folder_path: /home/ali/Outputs/Pruning/PruningEXP28/
 prune:
   SA_br_path: /home/ali/Outputs/SkinFormer_2SABranch/DiT_S_LRP_2SABranch_checkpoint.pth
-  SA_level: fitzpatrick_binary
-  batch_size: 2
-  bias_metric_prev: 0.628
   main_br_path: /home/ali/Outputs/SkinFormer_baseline_3class/DiT_S_LRP_level=high_checkpoint_BASE.pth
+  SA_level: fitzpatrick_binary
+  batch_size: 4
+  bias_metric_prev: 0.628
   main_level: high
-  main_mask_retain_rate: 0.7
+  main_mask_retain_rate: 0.85
   max_consecutive_no_improvement: 5
   num_batch_per_iter: 500
-  pruning_rate: 0.8
+  pruning_rate: 0.4
   target_bias_metric: EOM
-root_image_dir: /home/ali/Datasets/Fitz17k/Images/
-seed: 42

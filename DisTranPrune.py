@@ -252,11 +252,12 @@ def main(config):
         )
 
         if config["prune"]["target_bias_metric"] in [
-            "AUC_Gap",
             "EOpp0",
             "EOpp1",
             "EOdd",
             "NAR",
+            "NFR_W",
+            "NFR_Mac",
         ]:
             if val_metrics[config["prune"]["target_bias_metric"]] < best_bias_metric:
                 best_bias_metric = val_metrics[config["prune"]["target_bias_metric"]]
@@ -323,13 +324,19 @@ def main(config):
             index=False,
         )
 
-        plot_metrics(val_metrics_df, ["PQD", "DPM", "EOM"], "positive", config)
-        plot_metrics(val_metrics_df, ["acc_avg", "acc_gap", "Min_acc"], "ACC", config)
-        plot_metrics(val_metrics_df, ["F1_score", "F1_gap", "Min_F1"], "F1", config)
+        plot_metrics(val_metrics_df, ["accuracy", "acc_gap"], "ACC", config)
         plot_metrics(
-            val_metrics_df, ["EOpp0", "EOpp1", "EOdd", "NAR"], "negative", config
+            val_metrics_df, ["F1_W", "F1_W_gap", "F1_Mac", "F1_Mac_gap"], "F1", config
         )
-        plot_metrics(val_metrics_df, ["AUC", "AUC_Gap", "AUC_min"], "AUC", config)
+        plot_metrics(val_metrics_df, ["AUC", "AUC_Gap"], "AUC", config)
+        plot_metrics(val_metrics_df, ["PQD", "DPM", "EOM"], "positive", config)
+        plot_metrics(
+            val_metrics_df,
+            ["EOpp0", "EOpp1", "EOdd", "NAR", "NFR_Mac"],
+            "negative",
+            config,
+        )
+
         plot_metrics(
             val_metrics_df,
             ["PQD_binary", "DPM_binary", "EOM_binary", "NAR_binary"],
