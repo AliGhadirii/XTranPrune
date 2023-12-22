@@ -3,3 +3,4 @@ Outputs/
 __pycache__/
 .ipynb_checkpoints/
 Run_on_NCI.sh.*
+experiment_run.py
