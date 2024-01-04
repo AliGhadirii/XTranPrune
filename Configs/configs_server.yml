@@ -1,6 +1,6 @@
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
 root_image_dir: /home/ali/Datasets/Fitz17k/Images/
-output_folder_path: /home/ali/Outputs/Pruning/Main_0.85/PruningEXP34_P0.4/
+output_folder_path: /home/ali/Outputs/Pruning/Main_0.8/PruningEXP34/
 seed: 42
 num_workers: 1
 default:
@@ -16,8 +16,8 @@ prune:
   batch_size: 4
   bias_metric_prev: 0.628
   main_level: high
-  main_mask_retain_rate: 0.85
+  main_mask_retain_rate: 0.8
   max_consecutive_no_improvement: 5
-  num_batch_per_iter: 500
+  num_batch_per_iter: 600
   pruning_rate: 0.4
   target_bias_metric: EOM

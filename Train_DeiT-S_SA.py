@@ -12,11 +12,11 @@ import copy
 from sklearn.metrics import balanced_accuracy_score
 
 from Datasets.dataloaders import get_fitz17k_dataloaders
-from Models.ViT_LRP.ViT_LRP import deit_small_patch16_224
+from Models.ViT_LRP import deit_small_patch16_224
 from Utils.Misc_utils import set_seeds, LinearWarmup
 from Utils.transformers_utils import get_params_groups
 from Utils.Metrics import find_threshold
-from Evaluation import eval_model
+from Evaluation import eval_model_SABranch
 
 import warnings
 from sklearn.exceptions import UndefinedMetricWarning
@@ -42,7 +42,7 @@ def train_model(
     best_acc = 0
 
     best_model_path = os.path.join(
-        config["output_folder_path"], f"{model_name}_checkpoint_BASE.pth"
+        config["output_folder_path"], f"{model_name}_checkpoint.pth"
     )
 
     if os.path.isfile(best_model_path):
@@ -60,7 +60,6 @@ def train_model(
     for epoch in range(start_epoch, config["default"]["n_epochs"]):
         print("Epoch {}/{}".format(epoch, config["default"]["n_epochs"] - 1))
         print("-" * 20)
-
         since_epoch = time.time()
 
         # Each epoch has a training and validation phase
@@ -84,14 +83,9 @@ def train_model(
             for idx, batch in enumerate(dataloaders[phase]):
                 # Send inputs and labels to the device
                 inputs = batch["image"].to(device)
-                labels = batch[config["default"]["level"]]
+                labels = batch["fitzpatrick_binary"]
 
-                if num_classes == 2:
-                    labels = (
-                        torch.from_numpy(np.asarray(labels)).unsqueeze(1).to(device)
-                    )
-                else:
-                    labels = torch.from_numpy(np.asarray(labels)).to(device)
+                labels = torch.from_numpy(np.asarray(labels)).unsqueeze(1).to(device)
 
                 # Zero the gradients
                 optimizer.zero_grad()
@@ -114,18 +108,13 @@ def train_model(
                     inputs = inputs.float()
                     outputs = model(inputs)
 
-                    if num_classes == 2:
-                        probs = nn.functional.sigmoid(outputs)
-                        theshold = find_threshold(
-                            probs.cpu().data.numpy(), labels.cpu().data.numpy()
-                        )
-                        preds = (probs > theshold).to(torch.int32)
+                    probs = nn.functional.sigmoid(outputs)
+                    theshold = find_threshold(
+                        probs.cpu().data.numpy(), labels.cpu().data.numpy()
+                    )
+                    preds = (probs > theshold).to(torch.int32)
 
-                        loss = criterion(outputs, labels.to(torch.float32))
-                    else:
-                        probs, preds = torch.max(outputs, 1)
-
-                        loss = criterion(outputs, labels)
+                    loss = criterion(outputs, labels.to(torch.float32))
 
                     # Backward + optimize only if in the training phase
                     if phase == "train":
@@ -237,8 +226,7 @@ def main(config):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     set_seeds(config["seed"])
-
-    model_name = f"DiT_S_LRP_level={config['default']['level']}"
+    model_name = "DiT_S_LRP_2SABranch"
 
     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
@@ -248,6 +236,7 @@ def main(config):
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )
+
     model = deit_small_patch16_224(
         pretrained=config["default"]["pretrained"],
         # pretrained_path=config["PreTrained_path"],
@@ -321,20 +310,15 @@ def main(config):
             index=False,
         )
 
-    val_metrics, _ = eval_model(
+    val_metrics, _ = eval_model_SABranch(
         model,
         dataloaders,
         dataset_sizes,
-        num_classes,
         device,
-        config["default"]["level"],
         model_name,
         config,
         save_preds=True,
     )
-
-    print("validation metrics:")
-    print(val_metrics)
 
 
 if __name__ == "__main__":
