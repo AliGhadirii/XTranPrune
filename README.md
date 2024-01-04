@@ -1,4 +1,4 @@
-# SkinFormer
+# XTranPrune
 
 create environment
 conda create --name SkinFormer_env python=3.12
