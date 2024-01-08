@@ -6,7 +6,7 @@ from torch.utils.data.sampler import WeightedRandomSampler
 from torchvision import transforms
 from sklearn.model_selection import train_test_split
 
-from .datasets import Fitz17kDataset
+from .datasets import SkinDataset
 
 
 def train_val_split_fitz17k(
@@ -126,6 +126,7 @@ def train_val_split_fitz17k(
 def get_fitz17k_dataloaders(
     root_image_dir,
     Generated_csv_path,
+    dataset_name="Fitz17k",
     level="high",
     fitz_filter=None,
     holdout_set="random_holdout",
@@ -147,9 +148,10 @@ def get_fitz17k_dataloaders(
 
     num_classes = len(list(train_df[level].unique()))
 
-    transformed_train = Fitz17kDataset(
+    transformed_train = SkinDataset(
         df=train_df,
         root_dir=root_image_dir,
+        name=dataset_name,
         transform=transforms.Compose(
             [
                 transforms.ToPILImage(),
@@ -163,9 +165,10 @@ def get_fitz17k_dataloaders(
             ]
         ),
     )
-    transformed_val = Fitz17kDataset(
+    transformed_val = SkinDataset(
         df=val_df,
         root_dir=root_image_dir,
+        name=dataset_name,
         transform=transforms.Compose(
             [
                 transforms.ToPILImage(),
