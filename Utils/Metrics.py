@@ -144,9 +144,12 @@ def cal_metrics(df):
         AUC = roc_auc_score(df["label"], df["prediction_probability"]) * 100
         AUC_per_type = []
         for i in range(len(label_array_per_fitz)):
-            AUC_per_type.append(
-                roc_auc_score(label_array_per_fitz[i], prob_array[i]) * 100
-            )
+            try:
+                AUC_per_type.append(
+                    roc_auc_score(label_array_per_fitz[i], prob_array[i]) * 100
+                )
+            except:
+                AUC_per_type.append(np.nan)
         AUC_Gap = max(AUC_per_type) - min(AUC_per_type)
     else:
         AUC = -1
