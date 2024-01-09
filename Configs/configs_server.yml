@@ -1,13 +1,13 @@
-Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
-root_image_dir: /home/ali/Datasets/Fitz17k/Images/
-dataset_name: Fitz17k    #["Fitz17k", "HIBA"]
-output_folder_path: /home/ali/Outputs/Pruning/Main_0.8/PruningEXP34/
+Generated_csv_path: /home/ali/Datasets/HIBA/HIBA.csv
+root_image_dir: /home/ali/Datasets/HIBA/ISIC-images/
+dataset_name: HIBA    #["Fitz17k", "HIBA"]
+output_folder_path: /home/ali/Outputs/HIBA/XTranPrune_baseline_High/
 seed: 42
 num_workers: 1
 default:
   batch_size: 64
-  level: high
-  mode: eval
+  level: binary
+  mode: train
   n_epochs: 50
   pretrained: true
 prune:

@@ -2,6 +2,7 @@ import argparse
 import yaml
 import time
 import os
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -237,6 +238,11 @@ def main(config):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     set_seeds(config["seed"])
+
+    shutil.copy(
+        "Configs/configs_server.yml",
+        os.path.join(config["output_folder_path"], "configs.yml"),
+    )
 
     model_name = f"DiT_S_LRP_level={config['default']['level']}"
 
