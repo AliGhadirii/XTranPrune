@@ -165,6 +165,7 @@ def main(config):
     main_dataloaders, main_dataset_sizes, main_num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
+        dataset_name=config["dataset_name"],
         level=config["prune"]["main_level"],
         holdout_set="random_holdout",
         batch_size=config["prune"]["batch_size"],
@@ -174,6 +175,7 @@ def main(config):
     SA_dataloaders, SA_dataset_sizes, SA_num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
+        dataset_name=config["dataset_name"],
         level=config["prune"]["SA_level"],
         holdout_set="random_holdout",
         batch_size=config["prune"]["batch_size"],
@@ -183,6 +185,7 @@ def main(config):
     dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
+        dataset_name=config["dataset_name"],
         level=config["prune"]["main_level"],
         holdout_set="random_holdout",
         batch_size=config["default"]["batch_size"],

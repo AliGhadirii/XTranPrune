@@ -23,11 +23,11 @@ def cal_metrics(df):
     type_indices = sorted(list(df["fitzpatrick"].unique()))
     type_indices_binary = sorted(list(df["fitzpatrick_binary"].unique()))
 
-    labels_array = np.zeros((6, len(df["label"].unique())))
-    correct_array = np.zeros((6, len(df["label"].unique())))
-    predictions_array = np.zeros((6, len(df["label"].unique())))
-    prob_array = [[] for i in range(len(df["fitzpatrick"].unique()))]
-    label_array_per_fitz = [[] for i in range(len(df["fitzpatrick"].unique()))]
+    labels_array = np.zeros((len(type_indices), len(df["label"].unique())))
+    correct_array = np.zeros((len(type_indices), len(df["label"].unique())))
+    predictions_array = np.zeros((len(type_indices), len(df["label"].unique())))
+    prob_array = [[] for i in range(len(type_indices))]
+    label_array_per_fitz = [[] for i in range(len(type_indices))]
 
     labels_array_binary = np.zeros((2, len(df["label"].unique())))
     correct_array_binary = np.zeros((2, len(df["label"].unique())))
@@ -78,7 +78,7 @@ def cal_metrics(df):
     Accuracy = accuracy_score(df["label"], df["prediction"]) * 100
 
     acc_array = []
-    for i in range(6):
+    for i in range(len(type_indices)):
         acc_array.append(
             accuracy_score(
                 df[df["fitzpatrick"] == i]["label"],
@@ -92,7 +92,7 @@ def cal_metrics(df):
     F1_W = f1_score(df["label"], df["prediction"], average="weighted") * 100
 
     F1_W_array = []
-    for i in range(6):
+    for i in range(len(type_indices)):
         F1_W_array.append(
             f1_score(
                 df[df["fitzpatrick"] == i]["label"],
@@ -107,7 +107,7 @@ def cal_metrics(df):
     F1_Mac = f1_score(df["label"], df["prediction"], average="macro") * 100
 
     F1_Mac_array = []
-    for i in range(6):
+    for i in range(len(type_indices)):
         F1_Mac_array.append(
             f1_score(
                 df[df["fitzpatrick"] == i]["label"],
@@ -127,7 +127,7 @@ def cal_metrics(df):
 
     # EOM
     eo_array = correct_array / labels_array
-    EOM = np.mean(np.min(eo_array, axis=0) / np.max(eo_array, axis=0))
+    EOM = np.mean(np.nanmin(eo_array, axis=0) / np.nanmax(eo_array, axis=0))
 
     # NAR
     NAR = (acc_array.max() - acc_array.min()) / acc_array.mean()
@@ -150,7 +150,7 @@ def cal_metrics(df):
         AUC_Gap = max(AUC_per_type) - min(AUC_per_type)
     else:
         AUC = -1
-        AUC_per_type = [-1, -1, -1, -1, -1, -1]
+        AUC_per_type = [-1] * len(type_indices)
         AUC_Gap = -1
 
     ##############################          Metrics with binary Sensative attribute         ##############################
@@ -180,7 +180,7 @@ def cal_metrics(df):
     # EOM
     eo_array_binary = correct_array_binary / labels_array_binary
     EOM_binary = np.mean(
-        np.min(eo_array_binary, axis=0) / np.max(eo_array_binary, axis=0)
+        np.nanmin(eo_array_binary, axis=0) / np.nanmax(eo_array_binary, axis=0)
     )
 
     # getting class-wise TPR, FPR, TNR for fitzpatrick 0
@@ -245,22 +245,28 @@ def cal_metrics(df):
     # EOpp0
     EOpp0 = 0
     for c in range(len(class_tnr_fitz0)):
-        EOpp0 += abs(class_tnr_fitz1[c] - class_tnr_fitz0[c])
+        val = abs(class_tnr_fitz1[c] - class_tnr_fitz0[c])
+        if not np.isnan(val):
+            EOpp0 += val
 
     # EOpp1
     EOpp1 = 0
     for c in range(len(class_tpr_fitz0)):
-        EOpp1 += abs(class_tpr_fitz1[c] - class_tpr_fitz0[c])
+        val = abs(class_tpr_fitz1[c] - class_tpr_fitz0[c])
+        if not np.isnan(val):
+            EOpp1 += val
 
     # EOdd
     EOdd = 0
     for c in range(len(class_tpr_fitz0)):
-        EOdd += abs(
+        val = abs(
             class_tpr_fitz1[c]
             - class_tpr_fitz0[c]
             + class_fpr_fitz1[c]
             - class_fpr_fitz0[c]
         )
+        if not np.isnan(val):
+            EOdd += val
 
     # NAR
     NAR_binary = (
