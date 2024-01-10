@@ -228,11 +228,6 @@ def main(config):
 
     set_seeds(config["seed"])
 
-    shutil.copy(
-        "Configs/configs_server.yml",
-        os.path.join(config["output_folder_path"], "configs.yml"),
-    )
-
     model_name = "DiT_S_LRP_2SABranch"
 
     dataloaders, dataset_sizes, num_classes = get_dataloaders(
@@ -289,6 +284,11 @@ def main(config):
             )
         )
     else:
+        shutil.copy(
+            "Configs/configs_server.yml",
+            os.path.join(config["output_folder_path"], "configs.yml"),
+        )
+
         model, training_results, validation_results = train_model(
             dataloaders,
             dataset_sizes,

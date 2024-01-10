@@ -45,6 +45,7 @@ class SkinDataset:
                 )
                 + ".jpg"
             )
+            image = io.imread(img_name)
         elif self.name == "HIBA":
             img_name = (
                 os.path.join(
@@ -52,14 +53,14 @@ class SkinDataset:
                 )
                 + ".JPG"
             )
+            image = io.imread(img_name)
         elif self.name == "PAD":
-            img_name = (
-                os.path.join(
-                    self.root_dir, str(self.df.loc[self.df.index[idx], "hasher"])
-                )
-                + ".png"
+            img_name = os.path.join(
+                self.root_dir, str(self.df.loc[self.df.index[idx], "hasher"])
             )
-        image = io.imread(img_name)
+            image = io.imread(img_name)
+            if image.shape[-1] == 4:
+                image = skimage.img_as_ubyte(skimage.color.rgba2rgb(image))
 
         if len(image.shape) < 3:
             image = skimage.color.gray2rgb(image)
