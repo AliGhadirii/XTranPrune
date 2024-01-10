@@ -12,7 +12,7 @@ import torch.optim as optim
 import copy
 from sklearn.metrics import balanced_accuracy_score
 
-from Datasets.dataloaders import get_fitz17k_dataloaders
+from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
 from Utils.Misc_utils import set_seeds, LinearWarmup
 from Utils.transformers_utils import get_params_groups
@@ -246,7 +246,7 @@ def main(config):
 
     model_name = f"DiT_S_LRP_level={config['default']['level']}"
 
-    dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
+    dataloaders, dataset_sizes, num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         dataset_name=config["dataset_name"],

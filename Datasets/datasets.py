@@ -52,6 +52,13 @@ class SkinDataset:
                 )
                 + ".JPG"
             )
+        elif self.name == "PAD":
+            img_name = (
+                os.path.join(
+                    self.root_dir, str(self.df.loc[self.df.index[idx], "hasher"])
+                )
+                + ".png"
+            )
         image = io.imread(img_name)
 
         if len(image.shape) < 3:
@@ -95,6 +102,18 @@ class SkinDataset:
                 "image": image,
                 "low": low,
                 "binary": binary,
+                "hasher": hasher,
+                "fitzpatrick_scale": fitzpatrick_scale,
+                "fitzpatrick": fitzpatrick,
+                "fitzpatrick_binary": fitzpatrick_binary,
+            }
+            return sample
+        elif self.name == "PAD":
+            low = self.df.loc[self.df.index[idx], "low"]
+
+            sample = {
+                "image": image,
+                "low": low,
                 "hasher": hasher,
                 "fitzpatrick_scale": fitzpatrick_scale,
                 "fitzpatrick": fitzpatrick,
