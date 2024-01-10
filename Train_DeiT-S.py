@@ -251,7 +251,6 @@ def main(config):
         Generated_csv_path=config["Generated_csv_path"],
         dataset_name=config["dataset_name"],
         level=config["default"]["level"],
-        holdout_set="random_holdout",
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )
