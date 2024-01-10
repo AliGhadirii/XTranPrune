@@ -32,7 +32,7 @@ def train_val_split_fitz17k(
                 random_state=64,
                 stratify=df["fitzpatrick"],
             )
-            print("INFO: train test split stratified by fitzpatrick column")
+            print(f"INFO: train test split stratified by {level} column")
         else:
             train, test, y_train, y_test = train_test_split(
                 df, df["low"], test_size=0.2, random_state=64, stratify=df["low"]
