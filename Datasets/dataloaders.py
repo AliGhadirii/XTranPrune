@@ -25,12 +25,16 @@ def train_val_split(
             random_state=64,
             stratify=df["fitzpatrick"],
         )
-        print("INFO: train test split stratified by fitzpatrick column")
+        print(
+            f"INFO: train test split stratified by fitzpatrick column because the level is {level}"
+        )
     else:
         train, test, y_train, y_test = train_test_split(
             df, df["low"], test_size=0.2, random_state=64, stratify=df["low"]
         )
-        print("INFO: train test split stratified by low column")
+        print(
+            f"INFO: train test split stratified by low column because the level is {level}"
+        )
 
     return train, test
 
