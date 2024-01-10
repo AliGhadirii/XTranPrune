@@ -10,7 +10,7 @@ import torch
 
 from Utils.Misc_utils import set_seeds
 from Utils.Metrics import plot_metrics
-from Datasets.dataloaders import get_fitz17k_dataloaders
+from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
 from Evaluation import eval_model
 
@@ -162,32 +162,29 @@ def main(config):
 
     set_seeds(config["seed"])
 
-    main_dataloaders, main_dataset_sizes, main_num_classes = get_fitz17k_dataloaders(
+    main_dataloaders, main_dataset_sizes, main_num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         dataset_name=config["dataset_name"],
         level=config["prune"]["main_level"],
-        holdout_set="random_holdout",
         batch_size=config["prune"]["batch_size"],
         num_workers=1,
     )
 
-    SA_dataloaders, SA_dataset_sizes, SA_num_classes = get_fitz17k_dataloaders(
+    SA_dataloaders, SA_dataset_sizes, SA_num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         dataset_name=config["dataset_name"],
         level=config["prune"]["SA_level"],
-        holdout_set="random_holdout",
         batch_size=config["prune"]["batch_size"],
         num_workers=1,
     )
 
-    dataloaders, dataset_sizes, num_classes = get_fitz17k_dataloaders(
+    dataloaders, dataset_sizes, num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         dataset_name=config["dataset_name"],
         level=config["prune"]["main_level"],
-        holdout_set="random_holdout",
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )

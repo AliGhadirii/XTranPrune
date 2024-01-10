@@ -219,6 +219,18 @@ def cal_metrics(df):
 
     conf_matrix_fitz1 = confusion_matrix(labels_ft1, predictions_ft1)
 
+    # Check if there is any class that is not in both subgroups to handle it
+    try:
+        class_idx = (
+            set(df[df["fitzpatrick_binary"] == 0]["label"].unique())
+            - set(df[df["fitzpatrick_binary"] == 1]["label"].unique())
+        ).pop()
+        conf_matrix_fitz1 = np.insert(conf_matrix_fitz1, class_idx, 0, axis=1)
+        conf_matrix_fitz1 = np.insert(conf_matrix_fitz1, class_idx, 0, axis=0)
+        print(f"INFO: class {class_idx} is not in both binary subgroups")
+    except:
+        class_idx = None
+
     # Initialize lists to store TPR, TNR, FPR for each class
     class_tpr_fitz1 = []
     class_tnr_fitz1 = []
@@ -244,6 +256,11 @@ def cal_metrics(df):
         # Calculate FPR for class i
         fpr = 1 - tnr
         class_fpr_fitz1.append(fpr)
+
+    if class_idx is not None:
+        class_tpr_fitz1[class_idx] = np.nan
+        class_tnr_fitz1[class_idx] = np.nan
+        class_fpr_fitz1[class_idx] = np.nan
 
     # EOpp0
     EOpp0 = 0
