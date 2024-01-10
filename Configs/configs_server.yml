@@ -1,13 +1,13 @@
 Generated_csv_path: /home/ali/Datasets/PAD-UFES-20/PAD-UFES-20.csv
 root_image_dir: /home/ali/Datasets/PAD-UFES-20/images/
 dataset_name: PAD    #["Fitz17k", "HIBA", "PAD"]
-output_folder_path: /home/ali/Outputs/PAD-UFES-20/XTranPrune_baseline_low/
+output_folder_path: /home/ali/Outputs/PAD-UFES-20/XTranPrune_SA_binary/
 seed: 42
 num_workers: 1
 default:
   batch_size: 64
-  level: low
-  mode: eval
+  level: fitzpatrick_binary
+  mode: train
   n_epochs: 50
   pretrained: true
 prune:
