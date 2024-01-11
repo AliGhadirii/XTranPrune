@@ -664,7 +664,7 @@ def deit_small_patch16_224(
         **kwargs,
     )
     model.default_cfg = _cfg()
-    if pretrained:
+    if pretrained == "True":
         if pretrained_path:
             checkpoint = torch.load(pretrained_path)
         else:
@@ -677,7 +677,7 @@ def deit_small_patch16_224(
             {k: v for k, v in checkpoint["model"].items() if "head" not in k},
             strict=False,
         )
-        print("Pre-trained weights loaded...")
+        print("Pre-trained weights on ImageNet loaded...")
     elif weight_path != None:
         checkpoint = torch.load(weight_path)
         model.load_state_dict(checkpoint["model_state_dict"])

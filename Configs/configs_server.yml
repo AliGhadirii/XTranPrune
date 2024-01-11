@@ -6,10 +6,10 @@ seed: 42
 num_workers: 1
 default:
   batch_size: 64
-  level: fitzpatrick_binary
-  mode: train
+  level: fitzpatrick_binary     # level of label: low, mid, high, binary, fitzpatrick, or fitzpatrick_binary
+  mode: train                   # train, eval
   n_epochs: 50
-  pretrained: true
+  pretrained: True              # True, False
 prune:
   SA_br_path: /home/ali/Outputs/SkinFormer_2SABranch/DiT_S_LRP_2SABranch_checkpoint.pth
   main_br_path: /home/ali/Outputs/SkinFormer_baseline_3class/DiT_S_LRP_level=high_checkpoint_BASE.pth
