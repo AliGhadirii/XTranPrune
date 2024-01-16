@@ -324,23 +324,12 @@ def main(config):
             index=False,
         )
 
-        plot_metrics(val_metrics_df, ["accuracy", "acc_gap"], "ACC", config)
-        plot_metrics(
-            val_metrics_df, ["F1_W", "F1_W_gap", "F1_Mac", "F1_Mac_gap"], "F1", config
-        )
-        plot_metrics(val_metrics_df, ["AUC", "AUC_Gap"], "AUC", config)
-        plot_metrics(val_metrics_df, ["PQD", "DPM", "EOM"], "positive", config)
+        plot_metrics(val_metrics_df, ["F1_Mac", "Worst_F1_Mac"], "F1", config)
+        plot_metrics(val_metrics_df, ["DPM", "EOM"], "positive", config)
         plot_metrics(
             val_metrics_df,
-            ["EOpp0", "EOpp1", "EOdd", "NAR", "NFR_Mac"],
+            ["EOpp0", "EOpp1", "EOdd", "NFR_Mac"],
             "negative",
-            config,
-        )
-
-        plot_metrics(
-            val_metrics_df,
-            ["PQD_binary", "DPM_binary", "EOM_binary", "NAR_binary"],
-            "binary",
             config,
         )
 

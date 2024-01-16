@@ -664,7 +664,7 @@ def deit_small_patch16_224(
         **kwargs,
     )
     model.default_cfg = _cfg()
-    if pretrained == "True":
+    if pretrained:
         if pretrained_path:
             checkpoint = torch.load(pretrained_path)
         else:
