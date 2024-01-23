@@ -178,13 +178,13 @@ class Attention(nn.Module):
 
         attn = self.softmax(dots)
         attn = self.attn_drop(attn)
+        self.save_attn(attn)
 
         if self.attn_mask is not None:
             # element-wise multiplication of the mask of all h heads with the attention matrices of all h heads for all of the #batch_size records
             # (we expand the mask to match the shape of the attention matrices which includes the batch demension)
             attn = attn * self.attn_mask.expand(attn.shape)
 
-        self.save_attn(attn)
         if attn.requires_grad and self.add_hook:
             attn.register_hook(self.save_attn_gradients)
 
@@ -490,7 +490,7 @@ class VisionTransformer(nn.Module):
             return cam
 
         # our method, method name grad is legacy
-        elif method == "transformer_attribution" or method == "grad":
+        elif method == "transformer_attribution":
             cams = []
             blk_attrs = []
             for blk in self.blocks:
@@ -507,6 +507,17 @@ class VisionTransformer(nn.Module):
             cam = rollout[:, 0, 1:]
             blk_attrs = torch.stack(blk_attrs)
             return cam, blk_attrs
+
+        elif method == "grad":
+            blk_grads = []
+            for blk in self.blocks:
+                grad = blk.attn.get_attn_gradients()
+                grad = grad[0].reshape(-1, grad.shape[-1], grad.shape[-1])
+                grad = grad.clamp(min=0)
+                blk_grads.append(grad)
+
+            blk_grads = torch.stack(blk_grads)
+            return None, blk_grads
 
         elif method == "last_layer":
             cam = self.blocks[-1].attn.get_attn_cam()
@@ -536,6 +547,8 @@ class VisionTransformer(nn.Module):
             cam = cam.clamp(min=0).mean(dim=0)
             cam = cam[0, 1:]
             return cam
+        else:
+            print("ERROR: Invalid method name.")
 
     def generate_LRP(
         self,
@@ -572,6 +585,16 @@ class VisionTransformer(nn.Module):
             start_layer=start_layer,
             **kwargs,
         )
+
+    def generate_attr(self, input):
+        output = self(input)
+        blk_attrs = []
+        for blk in self.blocks:
+            attr = blk.attn.get_attn()[0]
+            attr = attr.clamp(min=0)
+            blk_attrs.append(attr)
+        blk_attrs = torch.stack(blk_attrs)
+        return blk_attrs
 
 
 def _conv_filter(state_dict, patch_size=16):

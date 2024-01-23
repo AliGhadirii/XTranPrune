@@ -50,12 +50,24 @@ def XTranPrune(
         SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
 
         for i in range(main_inputs.shape[0]):  # iterate over batch size
-            cam, main_blk_attrs_input = main_model.generate_LRP(
-                input=main_inputs[i].unsqueeze(0), index=main_labels[i]
-            )
-            cam, SA_blk_attrs_input = SA_model.generate_LRP(
-                input=SA_inputs[i].unsqueeze(0), index=SA_labels[i]
-            )
+            if config["prune"]["method"] == "attr":
+                main_blk_attrs_input = main_model.generate_attr(
+                    input=main_inputs[i].unsqueeze(0)
+                )
+                SA_blk_attrs_input = SA_model.generate_attr(
+                    input=SA_inputs[i].unsqueeze(0)
+                )
+            else:
+                cam, main_blk_attrs_input = main_model.generate_LRP(
+                    input=main_inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                    method=config["prune"]["method"],
+                )
+                cam, SA_blk_attrs_input = SA_model.generate_LRP(
+                    input=SA_inputs[i].unsqueeze(0),
+                    index=SA_labels[i],
+                    method=config["prune"]["method"],
+                )
 
             main_blk_attrs_batch = main_blk_attrs_batch + main_blk_attrs_input.detach()
             SA_blk_attrs_batch = SA_blk_attrs_batch + SA_blk_attrs_input.detach()
@@ -225,6 +237,7 @@ def main(config):
                 main_dataloader=main_dataloaders["train"],
                 SA_dataloader=SA_dataloaders["train"],
                 device=device,
+                verbose=config["prune"]["verbose"],
                 config=config,
             )
         else:
@@ -234,6 +247,7 @@ def main(config):
                 main_dataloader=main_dataloaders["train"],
                 SA_dataloader=SA_dataloaders["train"],
                 device=device,
+                verbose=config["prune"]["verbose"],
                 config=config,
             )
 
