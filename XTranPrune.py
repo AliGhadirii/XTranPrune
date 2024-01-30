@@ -50,12 +50,24 @@ def XTranPrune(
         SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
 
         for i in range(main_inputs.shape[0]):  # iterate over batch size
-            cam, main_blk_attrs_input = main_model.generate_LRP(
-                input=main_inputs[i].unsqueeze(0), index=main_labels[i]
-            )
-            cam, SA_blk_attrs_input = SA_model.generate_LRP(
-                input=SA_inputs[i].unsqueeze(0), index=SA_labels[i]
-            )
+            if config["prune"]["method"] == "attr":
+                main_blk_attrs_input = main_model.generate_attr(
+                    input=main_inputs[i].unsqueeze(0)
+                )
+                SA_blk_attrs_input = SA_model.generate_attr(
+                    input=SA_inputs[i].unsqueeze(0)
+                )
+            else:
+                cam, main_blk_attrs_input = main_model.generate_LRP(
+                    input=main_inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                    method=config["prune"]["method"],
+                )
+                cam, SA_blk_attrs_input = SA_model.generate_LRP(
+                    input=SA_inputs[i].unsqueeze(0),
+                    index=SA_labels[i],
+                    method=config["prune"]["method"],
+                )
 
             main_blk_attrs_batch = main_blk_attrs_batch + main_blk_attrs_input.detach()
             SA_blk_attrs_batch = SA_blk_attrs_batch + SA_blk_attrs_input.detach()
@@ -225,6 +237,7 @@ def main(config):
                 main_dataloader=main_dataloaders["train"],
                 SA_dataloader=SA_dataloaders["train"],
                 device=device,
+                verbose=config["prune"]["verbose"],
                 config=config,
             )
         else:
@@ -234,6 +247,7 @@ def main(config):
                 main_dataloader=main_dataloaders["train"],
                 SA_dataloader=SA_dataloaders["train"],
                 device=device,
+                verbose=config["prune"]["verbose"],
                 config=config,
             )
 
@@ -324,23 +338,12 @@ def main(config):
             index=False,
         )
 
-        plot_metrics(val_metrics_df, ["accuracy", "acc_gap"], "ACC", config)
-        plot_metrics(
-            val_metrics_df, ["F1_W", "F1_W_gap", "F1_Mac", "F1_Mac_gap"], "F1", config
-        )
-        plot_metrics(val_metrics_df, ["AUC", "AUC_Gap"], "AUC", config)
-        plot_metrics(val_metrics_df, ["PQD", "DPM", "EOM"], "positive", config)
+        plot_metrics(val_metrics_df, ["F1_Mac", "Worst_F1_Mac"], "F1", config)
+        plot_metrics(val_metrics_df, ["DPM", "EOM"], "positive", config)
         plot_metrics(
             val_metrics_df,
-            ["EOpp0", "EOpp1", "EOdd", "NAR", "NFR_Mac"],
+            ["EOpp0", "EOpp1", "EOdd", "NFR_Mac"],
             "negative",
-            config,
-        )
-
-        plot_metrics(
-            val_metrics_df,
-            ["PQD_binary", "DPM_binary", "EOM_binary", "NAR_binary"],
-            "binary",
             config,
         )
 

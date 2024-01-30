@@ -1,24 +1,26 @@
-Generated_csv_path: /home/ali/Datasets/PAD-UFES-20/PAD-UFES-20.csv
-root_image_dir: /home/ali/Datasets/PAD-UFES-20/images/
-dataset_name: PAD    #["Fitz17k", "HIBA", "PAD"]
-output_folder_path: /home/ali/Outputs/PAD-UFES-20/XTranPrune_SA_binary/
 seed: 42
+root_image_dir: /home/ali/Datasets/PAD-UFES-20/images/
+Generated_csv_path: /home/ali/Datasets/PAD-UFES-20/PAD-UFES-20.csv
+dataset_name: PAD
+output_folder_path: /home/ali/Outputs/PAD-UFES-20/XTranPrune_sex/
 num_workers: 1
 default:
   batch_size: 64
-  level: fitzpatrick_binary
+  level: gender
   mode: train
-  n_epochs: 50
+  n_epochs: 70
   pretrained: true
 prune:
-  SA_br_path: /home/ali/Outputs/SkinFormer_2SABranch/DiT_S_LRP_2SABranch_checkpoint.pth
-  main_br_path: /home/ali/Outputs/SkinFormer_baseline_3class/DiT_S_LRP_level=high_checkpoint_BASE.pth
+  main_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_baseline_High/DiT_S_LRP_level=high_checkpoint_BASE.pth
+  SA_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_SABranch_Binary/DiT_S_LRP_2SABranch_checkpoint.pth
   SA_level: fitzpatrick_binary
   batch_size: 4
   bias_metric_prev: 0.628
   main_level: high
   main_mask_retain_rate: 0.8
   max_consecutive_no_improvement: 5
-  num_batch_per_iter: 600
+  num_batch_per_iter: 500
   pruning_rate: 0.4
   target_bias_metric: EOM
+  method: grad                          # ["transformer_attribution", "attr", "grad"]
+  verbose: 1

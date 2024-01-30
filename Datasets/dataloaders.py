@@ -28,6 +28,17 @@ def train_val_split(
         print(
             f"INFO: train test split stratified by fitzpatrick column because the level is {level}"
         )
+    elif "gender" == level:
+        train, test, y_train, y_test = train_test_split(
+            df,
+            df["gender"],
+            test_size=0.2,
+            random_state=64,
+            stratify=df["gender"],
+        )
+        print(
+            f"INFO: train test split stratified by gender column because the level is {level}"
+        )
     else:
         train, test, y_train, y_test = train_test_split(
             df, df["low"], test_size=0.2, random_state=64, stratify=df["low"]
@@ -53,8 +64,8 @@ def get_dataloaders(
     train_df, val_df = train_val_split(Generated_csv_path, level=level)
 
     if fitz_filter is not None:
-        train_df = train_df[train_df["fitzpatrick"] == fitz_filter]
-        val_df = val_df[val_df["fitzpatrick"] == fitz_filter]
+        train_df = train_df[train_df["fitzpatrick_binary"] == fitz_filter]
+        val_df = val_df[val_df["fitzpatrick_binary"] == fitz_filter]
 
     dataset_sizes = {"train": train_df.shape[0], "val": val_df.shape[0]}
     print(dataset_sizes)

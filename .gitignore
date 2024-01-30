@@ -4,3 +4,5 @@ __pycache__/
 .ipynb_checkpoints/
 Run_on_NCI.sh.*
 experiment_run.py
+Ablation*.py
+paths.txt

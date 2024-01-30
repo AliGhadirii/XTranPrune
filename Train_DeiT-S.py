@@ -249,9 +249,9 @@ def main(config):
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )
+
     model = deit_small_patch16_224(
         pretrained=config["default"]["pretrained"],
-        # pretrained_path=config["PreTrained_path"],
         num_classes=num_classes,
         add_hook=False,
     )

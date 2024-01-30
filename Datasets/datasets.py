@@ -111,6 +111,7 @@ class SkinDataset:
             return sample
         elif self.name == "PAD":
             low = self.df.loc[self.df.index[idx], "low"]
+            gender = self.df.loc[self.df.index[idx], "gender"]
 
             sample = {
                 "image": image,
@@ -119,5 +120,6 @@ class SkinDataset:
                 "fitzpatrick_scale": fitzpatrick_scale,
                 "fitzpatrick": fitzpatrick,
                 "fitzpatrick_binary": fitzpatrick_binary,
+                "gender": gender,
             }
             return sample

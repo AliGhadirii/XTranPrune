@@ -303,6 +303,7 @@ def cal_metrics(df):
         "F1_Mac": F1_Mac,
         "F1_per_type_Mac": F1_Mac_array,
         "F1_Mac_gap": max(F1_Mac_array) - min(F1_Mac_array),
+        "Worst_F1_Mac": min(F1_Mac_array),
         "PQD": PQD,
         "DPM": DPM,
         "EOM": EOM,
