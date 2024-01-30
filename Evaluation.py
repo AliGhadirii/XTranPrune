@@ -182,6 +182,7 @@ def eval_model_SABranch(
     prediction_list = []
     fitzpatrick_list = []
     fitzpatrick_binary_list = []
+    gender_list = []
     p_list = []
 
     with torch.no_grad():
@@ -191,32 +192,49 @@ def eval_model_SABranch(
 
         for batch in dataloaders["val"]:
             inputs = batch["image"].to(device)
+            hasher = batch["hasher"]
             fitzpatrick = batch["fitzpatrick"]
             fitzpatrick_binary = batch["fitzpatrick_binary"]
             fitzpatrick = torch.from_numpy(np.asarray(fitzpatrick))
             fitzpatrick_binary = (
                 torch.from_numpy(np.asarray(fitzpatrick_binary)).unsqueeze(1).to(device)
             )
-            hasher = batch["hasher"]
+            fitzpatrick_list.append(fitzpatrick.tolist())
+            fitzpatrick_binary_list.append(fitzpatrick_binary.cpu().tolist())
+            hasher_list.append(hasher)
+
+            if config["default"]["level"] == "gender":
+                gender = batch["gender"]
+                gender = torch.from_numpy(np.asarray(gender)).unsqueeze(1).to(device)
+                gender_list.append(gender.cpu().tolist())
 
             outputs = model(inputs.float())  # (batchsize, classes num)
 
             probs = torch.nn.functional.sigmoid(outputs)
-            theshold = find_threshold(
-                probs.cpu().data.numpy(), fitzpatrick_binary.cpu().data.numpy()
-            )
-            preds = (probs > theshold).to(torch.int32)
 
-            running_corrects += torch.sum(preds == fitzpatrick_binary.data)
-            running_balanced_acc_sum += (
-                balanced_accuracy_score(fitzpatrick_binary.data.cpu(), preds.cpu())
-                * inputs.shape[0]
-            )
+            if config["default"]["level"] == "gender":
+                theshold = find_threshold(
+                    probs.cpu().data.numpy(), gender.cpu().data.numpy()
+                )
+                preds = (probs > theshold).to(torch.int32)
+                running_corrects += torch.sum(preds == gender.data)
+                running_balanced_acc_sum += (
+                    balanced_accuracy_score(gender.data.cpu(), preds.cpu())
+                    * inputs.shape[0]
+                )
+            else:
+                theshold = find_threshold(
+                    probs.cpu().data.numpy(), fitzpatrick_binary.cpu().data.numpy()
+                )
+                preds = (probs > theshold).to(torch.int32)
+                running_corrects += torch.sum(preds == fitzpatrick_binary.data)
+                running_balanced_acc_sum += (
+                    balanced_accuracy_score(fitzpatrick_binary.data.cpu(), preds.cpu())
+                    * inputs.shape[0]
+                )
             p_list.append(probs.cpu().tolist())
             prediction_list.append(preds.cpu().tolist())
-            fitzpatrick_list.append(fitzpatrick.tolist())
-            fitzpatrick_binary_list.append(fitzpatrick_binary.tolist())
-            hasher_list.append(hasher)
+
             total += inputs.shape[0]
 
         acc = float(running_corrects) / float(dataset_sizes["val"])
@@ -229,15 +247,27 @@ def eval_model_SABranch(
             return flatten(list_of_lists[0]) + flatten(list_of_lists[1:])
         return list_of_lists[:1] + flatten(list_of_lists[1:])
 
-    df_preds = pd.DataFrame(
-        {
-            "hasher": flatten(hasher_list),
-            "fitzpatrick_binary": flatten(fitzpatrick_binary_list),
-            "prediction": flatten(prediction_list),
-            "fitzpatrick": flatten(fitzpatrick_list),
-            "prediction_probability": flatten(p_list),
-        }
-    )
+    if config["default"]["level"] == "gender":
+        df_preds = pd.DataFrame(
+            {
+                "hasher": flatten(hasher_list),
+                "fitzpatrick_binary": flatten(fitzpatrick_binary_list),
+                "prediction": flatten(prediction_list),
+                "fitzpatrick": flatten(fitzpatrick_list),
+                "prediction_probability": flatten(p_list),
+                "gender": flatten(gender_list),
+            }
+        )
+    else:
+        df_preds = pd.DataFrame(
+            {
+                "hasher": flatten(hasher_list),
+                "fitzpatrick_binary": flatten(fitzpatrick_binary_list),
+                "prediction": flatten(prediction_list),
+                "fitzpatrick": flatten(fitzpatrick_list),
+                "prediction_probability": flatten(p_list),
+            }
+        )
 
     if save_preds:
         num_epoch = config["default"]["n_epochs"]
@@ -252,7 +282,7 @@ def eval_model_SABranch(
             f"\nFinal Validation results for {model_type}: Accuracy: {acc}  Balanced Accuracy: {balanced_acc} \n"
         )
 
-    y_true = df_preds["fitzpatrick_binary"].values
+    y_true = df_preds[config["default"]["level"]].values
     y_pred = df_preds["prediction"].values
 
     accuracy = accuracy_score(y_true, y_pred)

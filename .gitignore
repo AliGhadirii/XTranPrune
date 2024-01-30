@@ -5,3 +5,4 @@ __pycache__/
 Run_on_NCI.sh.*
 experiment_run.py
 Ablation*.py
+paths.txt

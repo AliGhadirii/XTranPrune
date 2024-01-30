@@ -28,6 +28,17 @@ def train_val_split(
         print(
             f"INFO: train test split stratified by fitzpatrick column because the level is {level}"
         )
+    elif "gender" == level:
+        train, test, y_train, y_test = train_test_split(
+            df,
+            df["gender"],
+            test_size=0.2,
+            random_state=64,
+            stratify=df["gender"],
+        )
+        print(
+            f"INFO: train test split stratified by gender column because the level is {level}"
+        )
     else:
         train, test, y_train, y_test = train_test_split(
             df, df["low"], test_size=0.2, random_state=64, stratify=df["low"]

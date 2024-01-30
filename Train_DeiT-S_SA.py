@@ -84,7 +84,7 @@ def train_model(
             for idx, batch in enumerate(dataloaders[phase]):
                 # Send inputs and labels to the device
                 inputs = batch["image"].to(device)
-                labels = batch["fitzpatrick_binary"]
+                labels = batch[config["default"]["level"]]
 
                 labels = torch.from_numpy(np.asarray(labels)).unsqueeze(1).to(device)
 
@@ -228,7 +228,7 @@ def main(config):
 
     set_seeds(config["seed"])
 
-    model_name = "DiT_S_LRP_2SABranch"
+    model_name = f"DiT_S_LRP_level={config['default']['level']}"
 
     dataloaders, dataset_sizes, num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],

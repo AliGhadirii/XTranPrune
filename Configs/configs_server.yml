@@ -1,14 +1,14 @@
 seed: 42
-root_image_dir: /home/ali/Datasets/Fitz17k/Images/
-Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
-output_folder_path: /home/ali/Outputs/Fitzpatrick17k/Pruning/Grad_method/
-dataset_name: Fitz17k
+root_image_dir: /home/ali/Datasets/PAD-UFES-20/images/
+Generated_csv_path: /home/ali/Datasets/PAD-UFES-20/PAD-UFES-20.csv
+dataset_name: PAD
+output_folder_path: /home/ali/Outputs/PAD-UFES-20/XTranPrune_sex/
 num_workers: 1
 default:
   batch_size: 64
-  level: high
+  level: gender
   mode: train
-  n_epochs: 50
+  n_epochs: 70
   pretrained: true
 prune:
   main_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_baseline_High/DiT_S_LRP_level=high_checkpoint_BASE.pth

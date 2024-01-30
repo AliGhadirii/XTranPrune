@@ -565,6 +565,7 @@ class VisionTransformer(nn.Module):
             index = np.argmax(output.cpu().data.numpy(), axis=-1)
 
         if self.num_classes == 2:
+            # In binary classification, the output is a single scalar and we initialize the target vector with the output logit of the network.
             one_hot = np.zeros((1, 1), dtype=np.float32)
             one_hot[0, 0] = output.cpu().data.numpy()
         else:
