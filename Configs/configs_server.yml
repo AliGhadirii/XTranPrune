@@ -14,13 +14,16 @@ prune:
   main_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_baseline_High/DiT_S_LRP_level=high_checkpoint_BASE.pth
   SA_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_SABranch_Binary/DiT_S_LRP_2SABranch_checkpoint.pth
   SA_level: fitzpatrick_binary
-  batch_size: 4
-  bias_metric_prev: 0.628
   main_level: high
-  main_mask_retain_rate: 0.8
-  max_consecutive_no_improvement: 5
-  num_batch_per_iter: 500
-  pruning_rate: 0.4
   target_bias_metric: EOM
-  method: grad                          # ["transformer_attribution", "attr", "grad", "attn"]
+  bias_metric_prev: 0.628
+  max_consecutive_no_improvement: 5
+  batch_size: 4
+  num_batch_per_iter: 500
+  main_mask_retain_rate: 0.8
+  pruning_rate: 0.4
+  beta1: 0.85
+  beta2: 0.85
+  cont_method: grad                          # ["transformer_attribution", "attr", "grad", "attn"]
+  method: normal                              # ['normal', 'MA', 'MA_Uncertainty']
   verbose: 1

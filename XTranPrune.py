@@ -16,7 +16,17 @@ from Evaluation import eval_model
 
 
 def XTranPrune(
-    main_model, SA_model, main_dataloader, SA_dataloader, device, config, verbose=2
+    main_model,
+    SA_model,
+    main_dataloader,
+    SA_dataloader,
+    device,
+    config,
+    verbose=2,
+    main_blk_attrs_MA=None,
+    SA_blk_attrs_MA=None,
+    main_blk_Uncer_MA = None
+    SA_blk_Uncer_MA = None
 ):
     main_DL_iter = iter(main_dataloader)
     SA_DL_iter = iter(SA_dataloader)
@@ -50,7 +60,7 @@ def XTranPrune(
         SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
 
         for i in range(main_inputs.shape[0]):  # iterate over batch size
-            if config["prune"]["method"] == "attn":
+            if config["prune"]["cont_method"] == "attn":
                 main_blk_attrs_input = main_model.generate_attn(
                     input=main_inputs[i].unsqueeze(0)
                 )
@@ -61,12 +71,12 @@ def XTranPrune(
                 cam, main_blk_attrs_input = main_model.generate_LRP(
                     input=main_inputs[i].unsqueeze(0),
                     index=main_labels[i],
-                    method=config["prune"]["method"],
+                    method=config["prune"]["cont_method"],
                 )
                 cam, SA_blk_attrs_input = SA_model.generate_LRP(
                     input=SA_inputs[i].unsqueeze(0),
                     index=SA_labels[i],
-                    method=config["prune"]["method"],
+                    method=config["prune"]["cont_method"],
                 )
 
             main_blk_attrs_batch = main_blk_attrs_batch + main_blk_attrs_input.detach()
@@ -85,6 +95,85 @@ def XTranPrune(
 
     main_blk_attrs_iter = main_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
     SA_blk_attrs_iter = SA_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
+
+    if "MA" in config["prune"]["method"]:
+        if main_blk_attrs_MA == None:
+            main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter)
+        if SA_blk_attrs_MA == None:
+            SA_blk_attrs_MA = torch.zeros_like(SA_blk_attrs_iter)
+
+        beta1 = config["prune"]["beta1"]
+        main_blk_attrs_MA = (
+            beta1 * main_blk_attrs_MA + (1 - beta1) * main_blk_attrs_iter
+        )
+        SA_blk_attrs_MA = beta1 * SA_blk_attrs_MA + (1 - beta1) * SA_blk_attrs_iter
+
+        main_blk_attrs_iter = main_blk_attrs_MA
+        SA_blk_attrs_iter = SA_blk_attrs_MA
+
+    if config["prune"]["method"] == "MA_Uncertainty":
+        if main_blk_Uncer_MA == None:
+            main_blk_Uncer_MA = torch.zeros_like(main_blk_attrs_iter)
+        if SA_blk_Uncer_MA == None:
+            SA_blk_Uncer_MA = torch.zeros_like(SA_blk_attrs_iter)
+
+        beta2 = config["prune"]["beta2"]
+        main_blk_Uncer_MA = beta2 * main_blk_Uncer_MA + (1-beta2) * (main_blk_attrs_iter-main_blk_attrs_MA).abs()
+        SA_blk_Uncer_MA = beta2 * SA_blk_Uncer_MA + (1-beta2) * (SA_blk_attrs_iter-SA_blk_attrs_MA).abs()
+
+        main_blk_attrs_iter = main_blk_attrs_MA
+        SA_blk_attrs_iter = SA_blk_attrs_MA
+
+    ###############################  Logging vectors stats ###############################    
+
+    # Creating an empty DataFrame to store results
+    log_df = pd.DataFrame(columns=["Iteration", "Main_blk_attrs_MA_min", "Main_blk_attrs_MA_max",
+                                    "Main_blk_attrs_MA_mean", "Main_blk_attrs_MA_std",
+                                    "SA_blk_attrs_MA_min", "SA_blk_attrs_MA_max",
+                                    "SA_blk_attrs_MA_mean", "SA_blk_attrs_MA_std",
+                                    "Main_blk_Uncer_MA_min", "Main_blk_Uncer_MA_max",
+                                    "Main_blk_Uncer_MA_mean", "Main_blk_Uncer_MA_std",
+                                    "SA_blk_Uncer_MA_min", "SA_blk_Uncer_MA_max",
+                                    "SA_blk_Uncer_MA_mean", "SA_blk_Uncer_MA_std"])
+
+    main_blk_attrs_MA_stats = [torch.min(main_blk_attrs_MA).item(), torch.max(main_blk_attrs_MA).item(),
+                               torch.mean(main_blk_attrs_MA).item(), torch.std(main_blk_attrs_MA).item()]
+
+    SA_blk_attrs_MA_stats = [torch.min(SA_blk_attrs_MA).item(), torch.max(SA_blk_attrs_MA).item(),
+                             torch.mean(SA_blk_attrs_MA).item(), torch.std(SA_blk_attrs_MA).item()]
+
+    main_blk_Uncer_MA_stats = [torch.min(main_blk_Uncer_MA).item(), torch.max(main_blk_Uncer_MA).item(),
+                               torch.mean(main_blk_Uncer_MA).item(), torch.std(main_blk_Uncer_MA).item()]
+
+    SA_blk_Uncer_MA_stats = [torch.min(SA_blk_Uncer_MA).item(), torch.max(SA_blk_Uncer_MA).item(),
+                             torch.mean(SA_blk_Uncer_MA).item(), torch.std(SA_blk_Uncer_MA).item()]
+
+    # Append the results to the DataFrame
+    log_df = log_df.append({"Iteration": iteration,
+                                    "Main_blk_attrs_MA_min": main_blk_attrs_MA_stats[0],
+                                    "Main_blk_attrs_MA_max": main_blk_attrs_MA_stats[1],
+                                    "Main_blk_attrs_MA_mean": main_blk_attrs_MA_stats[2],
+                                    "Main_blk_attrs_MA_std": main_blk_attrs_MA_stats[3],
+                                    "SA_blk_attrs_MA_min": SA_blk_attrs_MA_stats[0],
+                                    "SA_blk_attrs_MA_max": SA_blk_attrs_MA_stats[1],
+                                    "SA_blk_attrs_MA_mean": SA_blk_attrs_MA_stats[2],
+                                    "SA_blk_attrs_MA_std": SA_blk_attrs_MA_stats[3],
+                                    "Main_blk_Uncer_MA_min": main_blk_Uncer_MA_stats[0],
+                                    "Main_blk_Uncer_MA_max": main_blk_Uncer_MA_stats[1],
+                                    "Main_blk_Uncer_MA_mean": main_blk_Uncer_MA_stats[2],
+                                    "Main_blk_Uncer_MA_std": main_blk_Uncer_MA_stats[3],
+                                    "SA_blk_Uncer_MA_min": SA_blk_Uncer_MA_stats[0],
+                                    "SA_blk_Uncer_MA_max": SA_blk_Uncer_MA_stats[1],
+                                    "SA_blk_Uncer_MA_mean": SA_blk_Uncer_MA_stats[2],
+                                    "SA_blk_Uncer_MA_std": SA_blk_Uncer_MA_stats[3]}, ignore_index=True)
+    
+    log_df.to_csv(
+            os.path.join(
+                config["output_folder_path"],
+                f"attribution_vectors_log_{model_name}.csv",
+            ),
+            index=False,
+        )
 
     ###############################  Generating the pruning mask ###############################
 
@@ -221,6 +310,11 @@ def main(config):
     best_bias_metric = config["prune"]["bias_metric_prev"]
     val_metrics_df = None
 
+    main_blk_attrs_MA = None
+    SA_blk_attrs_MA = None
+    main_blk_Uncer_MA = None
+    SA_blk_Uncer_MA = None
+
     while (
         consecutive_no_improvement <= config["prune"]["max_consecutive_no_improvement"]
     ):
@@ -239,6 +333,10 @@ def main(config):
                 device=device,
                 verbose=config["prune"]["verbose"],
                 config=config,
+                main_blk_attrs_MA=main_blk_attrs_MA,
+                SA_blk_attrs_MA=SA_blk_attrs_MA,
+                main_blk_Uncer_MA=main_blk_Uncer_MA,
+                SA_blk_Uncer_MA=SA_blk_Uncer_MA,
             )
         else:
             pruned_model = XTranPrune(
@@ -249,6 +347,10 @@ def main(config):
                 device=device,
                 verbose=config["prune"]["verbose"],
                 config=config,
+                main_blk_attrs_MA=main_blk_attrs_MA,
+                SA_blk_attrs_MA=SA_blk_attrs_MA,
+                main_blk_Uncer_MA=main_blk_Uncer_MA,
+                SA_blk_Uncer_MA=SA_blk_Uncer_MA,
             )
 
         model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt+1}"
