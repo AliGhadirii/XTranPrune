@@ -22,5 +22,5 @@ prune:
   num_batch_per_iter: 500
   pruning_rate: 0.4
   target_bias_metric: EOM
-  method: grad                          # ["transformer_attribution", "attr", "grad"]
+  method: grad                          # ["transformer_attribution", "attr", "grad", "attn"]
   verbose: 1

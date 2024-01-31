@@ -50,11 +50,11 @@ def XTranPrune(
         SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
 
         for i in range(main_inputs.shape[0]):  # iterate over batch size
-            if config["prune"]["method"] == "attr":
-                main_blk_attrs_input = main_model.generate_attr(
+            if config["prune"]["method"] == "attn":
+                main_blk_attrs_input = main_model.generate_attn(
                     input=main_inputs[i].unsqueeze(0)
                 )
-                SA_blk_attrs_input = SA_model.generate_attr(
+                SA_blk_attrs_input = SA_model.generate_attn(
                     input=SA_inputs[i].unsqueeze(0)
                 )
             else:
