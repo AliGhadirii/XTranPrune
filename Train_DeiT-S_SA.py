@@ -223,15 +223,7 @@ def train_model(
 
 
 def main(config):
-    if not os.path.exists(os.path.join(config["output_folder_path"], "Log_files")):
-        os.mkdir(os.path.join(config["output_folder_path"], "Log_files"))
-
-    if not os.path.exists(os.path.join(config["output_folder_path"], "Weights")):
-        os.mkdir(os.path.join(config["output_folder_path"], "Weights"))
-
-    log_file_path = os.path.join(
-        config["output_folder_path"], "Log_files", "output.log"
-    )
+    log_file_path = os.path.join(config["output_folder_path"], "output.log")
 
     sys.stdout = Logger(log_file_path)
 
