@@ -5,10 +5,11 @@ import os
 from tqdm import tqdm
 import pandas as pd
 import shutil
+import sys
 
 import torch
 
-from Utils.Misc_utils import set_seeds
+from Utils.Misc_utils import set_seeds, Logger
 from Utils.Metrics import plot_metrics
 from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
@@ -338,6 +339,18 @@ def XTranPrune(
 
 
 def main(config):
+    if not os.path.exists(os.path.join(config["output_folder_path"], "Log_files")):
+        os.mkdir(os.path.join(config["output_folder_path"], "Log_files"))
+
+    if not os.path.exists(os.path.join(config["output_folder_path"], "Weights")):
+        os.mkdir(os.path.join(config["output_folder_path"], "Weights"))
+
+    log_file_path = os.path.join(
+        config["output_folder_path"], "Log_files", "output.log"
+    )
+
+    sys.stdout = Logger(log_file_path)
+
     print("CUDA is available: {} \n".format(torch.cuda.is_available()))
     print("Starting... \n")
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -349,12 +362,6 @@ def main(config):
         "Configs/configs_server.yml",
         os.path.join(config["output_folder_path"], "configs.yml"),
     )
-
-    if not os.path.exists(os.path.join(config["output_folder_path"], "Log_files")):
-        os.mkdir(os.path.join(config["output_folder_path"], "Log_files"))
-
-    if not os.path.exists(os.path.join(config["output_folder_path"], "Weights")):
-        os.mkdir(os.path.join(config["output_folder_path"], "Weights"))
 
     set_seeds(config["seed"])
 

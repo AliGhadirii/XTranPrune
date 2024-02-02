@@ -2,6 +2,7 @@ import argparse
 import yaml
 import time
 import os
+import sys
 import shutil
 
 import numpy as np
@@ -14,7 +15,7 @@ from sklearn.metrics import balanced_accuracy_score
 
 from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
-from Utils.Misc_utils import set_seeds, LinearWarmup
+from Utils.Misc_utils import set_seeds, LinearWarmup, Logger
 from Utils.transformers_utils import get_params_groups
 from Utils.Metrics import find_threshold
 from Evaluation import eval_model
@@ -233,6 +234,18 @@ def train_model(
 
 
 def main(config):
+    if not os.path.exists(os.path.join(config["output_folder_path"], "Log_files")):
+        os.mkdir(os.path.join(config["output_folder_path"], "Log_files"))
+
+    if not os.path.exists(os.path.join(config["output_folder_path"], "Weights")):
+        os.mkdir(os.path.join(config["output_folder_path"], "Weights"))
+
+    log_file_path = os.path.join(
+        config["output_folder_path"], "Log_files", "output.log"
+    )
+
+    sys.stdout = Logger(log_file_path)
+
     print("CUDA is available: {} \n".format(torch.cuda.is_available()))
     print("Starting... \n")
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
