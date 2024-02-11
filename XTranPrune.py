@@ -9,33 +9,11 @@ import sys
 
 import torch
 
-from Utils.Misc_utils import set_seeds, Logger
+from Utils.Misc_utils import set_seeds, Logger, get_stat, get_mask_idx
 from Utils.Metrics import plot_metrics
 from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
 from Evaluation import eval_model
-
-
-def get_stat(tensor):
-    return [
-        torch.min(tensor).item(),
-        torch.quantile(tensor, 0.25).item(),
-        torch.quantile(tensor, 0.5).item(),
-        torch.quantile(tensor, 0.75).item(),
-        torch.max(tensor).item(),
-        torch.mean(tensor).item(),
-        torch.std(tensor).item(),
-    ]
-
-
-def get_mask_idx(tensor, rate):
-    tmp1 = tensor.flatten()
-
-    threshold_tmp = torch.quantile(tmp1, 1 - rate)
-
-    mask = (tensor < threshold_tmp).float()
-
-    return mask
 
 
 def XTranPrune(

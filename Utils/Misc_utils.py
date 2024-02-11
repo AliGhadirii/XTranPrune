@@ -93,3 +93,28 @@ class Logger(object):
 
     def __del__(self):
         self.log.close()
+
+
+# For Debugging
+
+
+def get_stat(tensor):
+    return [
+        torch.min(tensor).item(),
+        torch.quantile(tensor, 0.25).item(),
+        torch.quantile(tensor, 0.5).item(),
+        torch.quantile(tensor, 0.75).item(),
+        torch.max(tensor).item(),
+        torch.mean(tensor).item(),
+        torch.std(tensor).item(),
+    ]
+
+
+def get_mask_idx(tensor, rate):
+    tmp1 = tensor.flatten()
+
+    threshold_tmp = torch.quantile(tmp1, 1 - rate)
+
+    mask = (tensor < threshold_tmp).float()
+
+    return mask
