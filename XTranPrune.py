@@ -16,6 +16,28 @@ from Models.ViT_LRP import deit_small_patch16_224
 from Evaluation import eval_model
 
 
+def get_stat(tensor):
+    return [
+        torch.min(tensor).item(),
+        torch.quantile(tensor, 0.25).item(),
+        torch.quantile(tensor, 0.5).item(),
+        torch.quantile(tensor, 0.75).item(),
+        torch.max(tensor).item(),
+        torch.mean(tensor).item(),
+        torch.std(tensor).item(),
+    ]
+
+
+def get_mask_idx(tensor, rate):
+    tmp1 = tensor.flatten()
+
+    threshold_tmp = torch.quantile(tmp1, 1 - rate)
+
+    mask = (tensor < threshold_tmp).float()
+
+    return mask
+
+
 def XTranPrune(
     main_model,
     SA_model,
@@ -25,10 +47,7 @@ def XTranPrune(
     config,
     prun_iter_cnt,
     verbose=2,
-    main_blk_attrs_MA=None,
-    SA_blk_attrs_MA=None,
-    main_blk_Uncer_MA=None,
-    SA_blk_Uncer_MA=None,
+    MA_vectors=None,
 ):
     main_DL_iter = iter(main_dataloader)
     SA_DL_iter = iter(SA_dataloader)
@@ -148,6 +167,10 @@ def XTranPrune(
 
     # getting the moving average of attribution vectors and measuing the uncertainty
     if config["prune"]["method"] == "MA":
+
+        main_blk_attrs_MA = MA_vectors[0]
+        SA_blk_attrs_MA = MA_vectors[1]
+
         if main_blk_attrs_MA == None:
             main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter_nrm)
         if SA_blk_attrs_MA == None:
@@ -159,10 +182,18 @@ def XTranPrune(
         )
         SA_blk_attrs_MA = beta1 * SA_blk_attrs_MA + (1 - beta1) * SA_blk_attrs_iter_nrm
 
+        MA_vectors[0] = main_blk_attrs_MA
+        MA_vectors[1] = SA_blk_attrs_MA
+
         main_blk_attrs_iter_final = main_blk_attrs_MA
         SA_blk_attrs_iter_final = SA_blk_attrs_MA
 
     elif config["prune"]["method"] == "MA_Uncertainty":
+        main_blk_attrs_MA = MA_vectors[0]
+        SA_blk_attrs_MA = MA_vectors[1]
+        main_blk_Uncer_MA = MA_vectors[2]
+        SA_blk_Uncer_MA = MA_vectors[3]
+
         if main_blk_attrs_MA == None:
             main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter_nrm)
         if SA_blk_attrs_MA == None:
@@ -188,82 +219,87 @@ def XTranPrune(
             + (1 - beta2) * (SA_blk_attrs_iter_nrm - SA_blk_attrs_MA).abs()
         )
 
+        MA_vectors[0] = main_blk_attrs_MA
+        MA_vectors[1] = SA_blk_attrs_MA
+        MA_vectors[2] = main_blk_Uncer_MA
+        MA_vectors[3] = SA_blk_Uncer_MA
+
         main_blk_attrs_iter_final = main_blk_attrs_MA * main_blk_Uncer_MA
         SA_blk_attrs_iter_final = SA_blk_attrs_MA * (1 - SA_blk_Uncer_MA)
 
-    # Logging vectors stats
-    main_blk_attrs_MA_stats = [
-        torch.min(main_blk_attrs_MA).item(),
-        torch.max(main_blk_attrs_MA).item(),
-        torch.mean(main_blk_attrs_MA).item(),
-        torch.std(main_blk_attrs_MA).item(),
-    ]
+    # # # Logging vectors stats
+    # # main_blk_attrs_MA_stats = [
+    # #     torch.min(main_blk_attrs_MA).item(),
+    # #     torch.max(main_blk_attrs_MA).item(),
+    # #     torch.mean(main_blk_attrs_MA).item(),
+    # #     torch.std(main_blk_attrs_MA).item(),
+    # # ]
 
-    SA_blk_attrs_MA_stats = [
-        torch.min(SA_blk_attrs_MA).item(),
-        torch.max(SA_blk_attrs_MA).item(),
-        torch.mean(SA_blk_attrs_MA).item(),
-        torch.std(SA_blk_attrs_MA).item(),
-    ]
+    # # SA_blk_attrs_MA_stats = [
+    # #     torch.min(SA_blk_attrs_MA).item(),
+    # #     torch.max(SA_blk_attrs_MA).item(),
+    # #     torch.mean(SA_blk_attrs_MA).item(),
+    # #     torch.std(SA_blk_attrs_MA).item(),
+    # # ]
 
-    main_blk_Uncer_MA_stats = [
-        torch.min(main_blk_Uncer_MA).item(),
-        torch.max(main_blk_Uncer_MA).item(),
-        torch.mean(main_blk_Uncer_MA).item(),
-        torch.std(main_blk_Uncer_MA).item(),
-    ]
+    # # main_blk_Uncer_MA_stats = [
+    # #     torch.min(main_blk_Uncer_MA).item(),
+    # #     torch.max(main_blk_Uncer_MA).item(),
+    # #     torch.mean(main_blk_Uncer_MA).item(),
+    # #     torch.std(main_blk_Uncer_MA).item(),
+    # # ]
 
-    SA_blk_Uncer_MA_stats = [
-        torch.min(SA_blk_Uncer_MA).item(),
-        torch.max(SA_blk_Uncer_MA).item(),
-        torch.mean(SA_blk_Uncer_MA).item(),
-        torch.std(SA_blk_Uncer_MA).item(),
-    ]
+    # # SA_blk_Uncer_MA_stats = [
+    # #     torch.min(SA_blk_Uncer_MA).item(),
+    # #     torch.max(SA_blk_Uncer_MA).item(),
+    # #     torch.mean(SA_blk_Uncer_MA).item(),
+    # #     torch.std(SA_blk_Uncer_MA).item(),
+    # # ]
 
-    temp_df = pd.DataFrame(
-        [
-            {
-                "Iteration": prun_iter_cnt + 1,
-                "Main_blk_attrs_MA_min": main_blk_attrs_MA_stats[0],
-                "Main_blk_attrs_MA_max": main_blk_attrs_MA_stats[1],
-                "Main_blk_attrs_MA_mean": main_blk_attrs_MA_stats[2],
-                "Main_blk_attrs_MA_std": main_blk_attrs_MA_stats[3],
-                "SA_blk_attrs_MA_min": SA_blk_attrs_MA_stats[0],
-                "SA_blk_attrs_MA_max": SA_blk_attrs_MA_stats[1],
-                "SA_blk_attrs_MA_mean": SA_blk_attrs_MA_stats[2],
-                "SA_blk_attrs_MA_std": SA_blk_attrs_MA_stats[3],
-                "Main_blk_Uncer_MA_min": main_blk_Uncer_MA_stats[0],
-                "Main_blk_Uncer_MA_max": main_blk_Uncer_MA_stats[1],
-                "Main_blk_Uncer_MA_mean": main_blk_Uncer_MA_stats[2],
-                "Main_blk_Uncer_MA_std": main_blk_Uncer_MA_stats[3],
-                "SA_blk_Uncer_MA_min": SA_blk_Uncer_MA_stats[0],
-                "SA_blk_Uncer_MA_max": SA_blk_Uncer_MA_stats[1],
-                "SA_blk_Uncer_MA_mean": SA_blk_Uncer_MA_stats[2],
-                "SA_blk_Uncer_MA_std": SA_blk_Uncer_MA_stats[3],
-            }
-        ],
-    )
+    # # temp_df = pd.DataFrame(
+    # #     [
+    # #         {
+    # #             "Iteration": prun_iter_cnt + 1,
+    # #             "Main_blk_attrs_MA_min": main_blk_attrs_MA_stats[0],
+    # #             "Main_blk_attrs_MA_max": main_blk_attrs_MA_stats[1],
+    # #             "Main_blk_attrs_MA_mean": main_blk_attrs_MA_stats[2],
+    # #             "Main_blk_attrs_MA_std": main_blk_attrs_MA_stats[3],
+    # #             "SA_blk_attrs_MA_min": SA_blk_attrs_MA_stats[0],
+    # #             "SA_blk_attrs_MA_max": SA_blk_attrs_MA_stats[1],
+    # #             "SA_blk_attrs_MA_mean": SA_blk_attrs_MA_stats[2],
+    # #             "SA_blk_attrs_MA_std": SA_blk_attrs_MA_stats[3],
+    # #             "Main_blk_Uncer_MA_min": main_blk_Uncer_MA_stats[0],
+    # #             "Main_blk_Uncer_MA_max": main_blk_Uncer_MA_stats[1],
+    # #             "Main_blk_Uncer_MA_mean": main_blk_Uncer_MA_stats[2],
+    # #             "Main_blk_Uncer_MA_std": main_blk_Uncer_MA_stats[3],
+    # #             "SA_blk_Uncer_MA_min": SA_blk_Uncer_MA_stats[0],
+    # #             "SA_blk_Uncer_MA_max": SA_blk_Uncer_MA_stats[1],
+    # #             "SA_blk_Uncer_MA_mean": SA_blk_Uncer_MA_stats[2],
+    # #             "SA_blk_Uncer_MA_std": SA_blk_Uncer_MA_stats[3],
+    # #         }
+    # #     ],
+    # # )
 
-    if prun_iter_cnt == 0:
-        log_df = temp_df
-    else:
-        log_df = pd.read_csv(
-            os.path.join(
-                config["output_folder_path"],
-                "Log_files",
-                f"Attribution_vectors_stat_log.csv",
-            )
-        )
-        log_df = pd.concat([log_df, temp_df], ignore_index=True)
+    # if prun_iter_cnt == 0:
+    #     log_df = temp_df
+    # else:
+    #     log_df = pd.read_csv(
+    #         os.path.join(
+    #             config["output_folder_path"],
+    #             "Log_files",
+    #             f"Attribution_vectors_stat_log.csv",
+    #         )
+    #     )
+    #     log_df = pd.concat([log_df, temp_df], ignore_index=True)
 
-    log_df.to_csv(
-        os.path.join(
-            config["output_folder_path"],
-            "Log_files",
-            f"Attribution_vectors_stat_log.csv",
-        ),
-        index=False,
-    )
+    # log_df.to_csv(
+    #     os.path.join(
+    #         config["output_folder_path"],
+    #         "Log_files",
+    #         f"Attribution_vectors_stat_log.csv",
+    #     ),
+    #     index=False,
+    # )
 
     ###############################  Generating the pruning mask ###############################
 
@@ -335,7 +371,7 @@ def XTranPrune(
 
     main_model.set_attn_mask(prun_mask)
 
-    return main_model
+    return main_model, MA_vectors
 
 
 def main(config):
@@ -417,6 +453,13 @@ def main(config):
     main_blk_Uncer_MA = None
     SA_blk_Uncer_MA = None
 
+    MA_vectors = [
+        main_blk_attrs_MA,
+        SA_blk_attrs_MA,
+        main_blk_Uncer_MA,
+        SA_blk_Uncer_MA,
+    ]
+
     while (
         consecutive_no_improvement <= config["prune"]["max_consecutive_no_improvement"]
     ):
@@ -429,7 +472,7 @@ def main(config):
         model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt+1}"
 
         if prun_iter_cnt == 0:
-            pruned_model = XTranPrune(
+            pruned_model, MA_vectors = XTranPrune(
                 main_model=main_model,
                 SA_model=SA_model,
                 main_dataloader=main_dataloaders["train"],
@@ -437,14 +480,11 @@ def main(config):
                 device=device,
                 verbose=config["prune"]["verbose"],
                 config=config,
-                main_blk_attrs_MA=main_blk_attrs_MA,
-                SA_blk_attrs_MA=SA_blk_attrs_MA,
-                main_blk_Uncer_MA=main_blk_Uncer_MA,
-                SA_blk_Uncer_MA=SA_blk_Uncer_MA,
+                MA_vectors=MA_vectors,
                 prun_iter_cnt=prun_iter_cnt,
             )
         else:
-            pruned_model = XTranPrune(
+            pruned_model, MA_vectors = XTranPrune(
                 main_model=pruned_model,
                 SA_model=SA_model,
                 main_dataloader=main_dataloaders["train"],
@@ -452,10 +492,7 @@ def main(config):
                 device=device,
                 verbose=config["prune"]["verbose"],
                 config=config,
-                main_blk_attrs_MA=main_blk_attrs_MA,
-                SA_blk_attrs_MA=SA_blk_attrs_MA,
-                main_blk_Uncer_MA=main_blk_Uncer_MA,
-                SA_blk_Uncer_MA=SA_blk_Uncer_MA,
+                MA_vectors=MA_vectors,
                 prun_iter_cnt=prun_iter_cnt,
             )
 

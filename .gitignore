@@ -6,3 +6,5 @@ Run_on_NCI.sh.*
 experiment_run.py
 Ablation*.py
 paths.txt
+.vscode/
+Configs/configs_tmp.yml
