@@ -112,36 +112,38 @@ def XTranPrune(
         ),
     )
 
-    # Normalizing the attribution vectors
-    main_blk_attrs_iter_flt = main_blk_attrs_iter.view(
-        main_blk_attrs_iter.size(0), main_blk_attrs_iter.size(1), -1
-    )
-    main_min_values, _ = main_blk_attrs_iter_flt.min(dim=2, keepdim=True)
-    main_min_values = main_min_values.view(
-        main_blk_attrs_iter.size(0), main_blk_attrs_iter.size(1), 1, 1
-    )
-    main_max_values, _ = main_blk_attrs_iter_flt.max(dim=2, keepdim=True)
-    main_max_values = main_max_values.view(
-        main_blk_attrs_iter.size(0), main_blk_attrs_iter.size(1), 1, 1
-    )
-    main_blk_attrs_iter_nrm = (main_blk_attrs_iter - main_min_values) / (
-        main_max_values - main_min_values
-    )
+    if config["prune"]["normalize"]:
 
-    SA_blk_attrs_iter_flt = SA_blk_attrs_iter.view(
-        SA_blk_attrs_iter.size(0), SA_blk_attrs_iter.size(1), -1
-    )
-    SA_min_values, _ = SA_blk_attrs_iter_flt.min(dim=2, keepdim=True)
-    SA_min_values = SA_min_values.view(
-        SA_blk_attrs_iter.size(0), SA_blk_attrs_iter.size(1), 1, 1
-    )
-    SA_max_values, _ = SA_blk_attrs_iter_flt.max(dim=2, keepdim=True)
-    SA_max_values = SA_max_values.view(
-        SA_blk_attrs_iter.size(0), SA_blk_attrs_iter.size(1), 1, 1
-    )
-    SA_blk_attrs_iter_nrm = (SA_blk_attrs_iter - SA_min_values) / (
-        SA_max_values - SA_min_values
-    )
+        # Normalizing the attribution vectors
+        main_blk_attrs_iter_flt = main_blk_attrs_iter.view(
+            main_blk_attrs_iter.size(0), main_blk_attrs_iter.size(1), -1
+        )
+        main_min_values, _ = main_blk_attrs_iter_flt.min(dim=2, keepdim=True)
+        main_min_values = main_min_values.view(
+            main_blk_attrs_iter.size(0), main_blk_attrs_iter.size(1), 1, 1
+        )
+        main_max_values, _ = main_blk_attrs_iter_flt.max(dim=2, keepdim=True)
+        main_max_values = main_max_values.view(
+            main_blk_attrs_iter.size(0), main_blk_attrs_iter.size(1), 1, 1
+        )
+        main_blk_attrs_iter = (main_blk_attrs_iter - main_min_values) / (
+            main_max_values - main_min_values
+        )
+
+        SA_blk_attrs_iter_flt = SA_blk_attrs_iter.view(
+            SA_blk_attrs_iter.size(0), SA_blk_attrs_iter.size(1), -1
+        )
+        SA_min_values, _ = SA_blk_attrs_iter_flt.min(dim=2, keepdim=True)
+        SA_min_values = SA_min_values.view(
+            SA_blk_attrs_iter.size(0), SA_blk_attrs_iter.size(1), 1, 1
+        )
+        SA_max_values, _ = SA_blk_attrs_iter_flt.max(dim=2, keepdim=True)
+        SA_max_values = SA_max_values.view(
+            SA_blk_attrs_iter.size(0), SA_blk_attrs_iter.size(1), 1, 1
+        )
+        SA_blk_attrs_iter = (SA_blk_attrs_iter - SA_min_values) / (
+            SA_max_values - SA_min_values
+        )
 
     # getting the moving average of attribution vectors and measuing the uncertainty
     if config["prune"]["method"] == "MA":
@@ -150,15 +152,15 @@ def XTranPrune(
         SA_blk_attrs_MA = MA_vectors[1]
 
         if main_blk_attrs_MA == None:
-            main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter_nrm)
+            main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter)
         if SA_blk_attrs_MA == None:
-            SA_blk_attrs_MA = torch.zeros_like(SA_blk_attrs_iter_nrm)
+            SA_blk_attrs_MA = torch.zeros_like(SA_blk_attrs_iter)
 
         beta1 = config["prune"]["beta1"]
         main_blk_attrs_MA = (
-            beta1 * main_blk_attrs_MA + (1 - beta1) * main_blk_attrs_iter_nrm
+            beta1 * main_blk_attrs_MA + (1 - beta1) * main_blk_attrs_iter
         )
-        SA_blk_attrs_MA = beta1 * SA_blk_attrs_MA + (1 - beta1) * SA_blk_attrs_iter_nrm
+        SA_blk_attrs_MA = beta1 * SA_blk_attrs_MA + (1 - beta1) * SA_blk_attrs_iter
 
         MA_vectors[0] = main_blk_attrs_MA
         MA_vectors[1] = SA_blk_attrs_MA
@@ -173,28 +175,28 @@ def XTranPrune(
         SA_blk_Uncer_MA = MA_vectors[3]
 
         if main_blk_attrs_MA == None:
-            main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter_nrm)
+            main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter)
         if SA_blk_attrs_MA == None:
-            SA_blk_attrs_MA = torch.zeros_like(SA_blk_attrs_iter_nrm)
+            SA_blk_attrs_MA = torch.zeros_like(SA_blk_attrs_iter)
         if main_blk_Uncer_MA == None:
-            main_blk_Uncer_MA = torch.zeros_like(main_blk_attrs_iter_nrm)
+            main_blk_Uncer_MA = torch.zeros_like(main_blk_attrs_iter)
         if SA_blk_Uncer_MA == None:
-            SA_blk_Uncer_MA = torch.zeros_like(SA_blk_attrs_iter_nrm)
+            SA_blk_Uncer_MA = torch.zeros_like(SA_blk_attrs_iter)
 
         beta1 = config["prune"]["beta1"]
         main_blk_attrs_MA = (
-            beta1 * main_blk_attrs_MA + (1 - beta1) * main_blk_attrs_iter_nrm
+            beta1 * main_blk_attrs_MA + (1 - beta1) * main_blk_attrs_iter
         )
-        SA_blk_attrs_MA = beta1 * SA_blk_attrs_MA + (1 - beta1) * SA_blk_attrs_iter_nrm
+        SA_blk_attrs_MA = beta1 * SA_blk_attrs_MA + (1 - beta1) * SA_blk_attrs_iter
 
         beta2 = config["prune"]["beta2"]
         main_blk_Uncer_MA = (
             beta2 * main_blk_Uncer_MA
-            + (1 - beta2) * (main_blk_attrs_iter_nrm - main_blk_attrs_MA).abs()
+            + (1 - beta2) * (main_blk_attrs_iter - main_blk_attrs_MA).abs()
         )
         SA_blk_Uncer_MA = (
             beta2 * SA_blk_Uncer_MA
-            + (1 - beta2) * (SA_blk_attrs_iter_nrm - SA_blk_attrs_MA).abs()
+            + (1 - beta2) * (SA_blk_attrs_iter - SA_blk_attrs_MA).abs()
         )
 
         MA_vectors[0] = main_blk_attrs_MA
@@ -202,8 +204,15 @@ def XTranPrune(
         MA_vectors[2] = main_blk_Uncer_MA
         MA_vectors[3] = SA_blk_Uncer_MA
 
-        main_blk_attrs_iter_final = main_blk_attrs_MA * main_blk_Uncer_MA
-        SA_blk_attrs_iter_final = SA_blk_attrs_MA * (1 - SA_blk_Uncer_MA)
+        if config["prune"]["normalize"]:
+            main_blk_attrs_iter_final = main_blk_attrs_MA * main_blk_Uncer_MA
+            SA_blk_attrs_iter_final = SA_blk_attrs_MA * (1 - SA_blk_Uncer_MA)
+
+        else:
+            main_blk_attrs_iter_final = main_blk_attrs_MA * main_blk_Uncer_MA
+            SA_blk_attrs_iter_final = SA_blk_attrs_MA * (
+                SA_blk_Uncer_MA.max() - SA_blk_Uncer_MA
+            )
 
     ###############################  Generating the pruning mask ###############################
 
@@ -278,7 +287,8 @@ def XTranPrune(
     return main_model, MA_vectors
 
 
-def main(config):
+def main(config, args):
+
     if not os.path.exists(os.path.join(config["output_folder_path"], "Log_files")):
         os.mkdir(os.path.join(config["output_folder_path"], "Log_files"))
 
@@ -299,7 +309,7 @@ def main(config):
     print(config["prune"])
 
     shutil.copy(
-        "Configs/configs_server.yml",
+        args.config,
         os.path.join(config["output_folder_path"], "configs.yml"),
     )
 
@@ -502,4 +512,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     with open(args.config, "r") as fh:
         config = yaml.load(fh, Loader=yaml.FullLoader)
-    main(config)
+    main(config, args)

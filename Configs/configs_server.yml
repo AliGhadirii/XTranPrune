@@ -9,7 +9,7 @@ default:
   level: high
   mode: train
   n_epochs: 70
-  pretrained: true
+  pretrained: True                                     # [True, False]
 prune:
   main_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_baseline_High/DiT_S_LRP_level=high_checkpoint_BASE.pth
   SA_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_SABranch_Binary/DiT_S_LRP_2SABranch_checkpoint.pth
@@ -26,4 +26,5 @@ prune:
   beta2: 0.25
   cont_method: transformer_attribution                # ["transformer_attribution", "attr", "grad", "attn"]
   method: MA_Uncertainty                              # ['normal', 'MA', 'MA_Uncertainty']
+  normalize: True                                     # [True, False]
   verbose: 2                                          # [0, 1, 2] (more details as the number grows)
