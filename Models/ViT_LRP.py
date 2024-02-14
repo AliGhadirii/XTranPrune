@@ -458,17 +458,13 @@ class VisionTransformer(nn.Module):
         start_layer=0,
         **kwargs,
     ):
-        # print(kwargs)
-        # print("conservation 1", cam.sum())
+        
         cam = self.head.relprop(cam, **kwargs)
         cam = cam.unsqueeze(1)
         cam = self.pool.relprop(cam, **kwargs)
         cam = self.norm.relprop(cam, **kwargs)
         for blk in reversed(self.blocks):
             cam = blk.relprop(cam, **kwargs)
-
-        # print("conservation 2", cam.sum())
-        # print("min", cam.min())
 
         if method == "full":
             (cam, _) = self.add.relprop(cam, **kwargs)
@@ -489,7 +485,6 @@ class VisionTransformer(nn.Module):
             cam = cam[:, 0, 1:]
             return cam
 
-        # our method, method name grad is legacy
         elif method == "transformer_attribution":
             cams = []
             blk_attrs = []
@@ -519,6 +514,17 @@ class VisionTransformer(nn.Module):
             blk_grads = torch.stack(blk_grads)
             return None, blk_grads
 
+        elif method == "attr":
+            blk_attrs = []
+            for blk in self.blocks:
+                cam = blk.attn.get_attn_cam()
+                cam = cam[0].reshape(-1, cam.shape[-1], cam.shape[-1])
+                cam = cam.clamp(min=0)
+                blk_attrs.append(cam)
+            blk_attrs = torch.stack(blk_attrs)
+
+            return None, blk_attrs
+        
         elif method == "last_layer":
             cam = self.blocks[-1].attn.get_attn_cam()
             cam = cam[0].reshape(-1, cam.shape[-1], cam.shape[-1])
@@ -587,15 +593,15 @@ class VisionTransformer(nn.Module):
             **kwargs,
         )
 
-    def generate_attr(self, input):
+    def generate_attn(self, input):
         output = self(input)
-        blk_attrs = []
+        blk_attns = []
         for blk in self.blocks:
-            attr = blk.attn.get_attn()[0]
-            attr = attr.clamp(min=0)
-            blk_attrs.append(attr)
-        blk_attrs = torch.stack(blk_attrs)
-        return blk_attrs
+            attn = blk.attn.get_attn()[0]
+            attn = attn.clamp(min=0)
+            blk_attns.append(attn)
+        blk_attns = torch.stack(blk_attns)
+        return blk_attns
 
 
 def _conv_filter(state_dict, patch_size=16):

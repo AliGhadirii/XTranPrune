@@ -1,4 +1,5 @@
 import random
+import sys
 import torch
 import numpy as np
 from torch.optim.lr_scheduler import _LRScheduler
@@ -73,3 +74,47 @@ class LinearWarmup(_LRScheduler):
                 group["lr"] + (1 / self.warmup_iters) * (self.max_lr - self.eta_min)
                 for group in self.optimizer.param_groups
             ]
+
+
+class Logger(object):
+    def __init__(self, log_file_path):
+        self.terminal = sys.stdout
+        self.log = open(log_file_path, "a")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.terminal.flush()
+        self.log.write(message)
+        self.log.flush()
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+    def __del__(self):
+        self.log.close()
+
+
+# For Debugging
+
+
+def get_stat(tensor):
+    return [
+        torch.min(tensor).item(),
+        torch.quantile(tensor, 0.25).item(),
+        torch.quantile(tensor, 0.5).item(),
+        torch.quantile(tensor, 0.75).item(),
+        torch.max(tensor).item(),
+        torch.mean(tensor).item(),
+        torch.std(tensor).item(),
+    ]
+
+
+def get_mask_idx(tensor, rate):
+    tmp1 = tensor.flatten()
+
+    threshold_tmp = torch.quantile(tmp1, 1 - rate)
+
+    mask = (tensor < threshold_tmp).float()
+
+    return mask

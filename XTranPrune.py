@@ -5,10 +5,11 @@ import os
 from tqdm import tqdm
 import pandas as pd
 import shutil
+import sys
 
 import torch
 
-from Utils.Misc_utils import set_seeds
+from Utils.Misc_utils import set_seeds, Logger, get_stat, get_mask_idx
 from Utils.Metrics import plot_metrics
 from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
@@ -16,12 +17,20 @@ from Evaluation import eval_model
 
 
 def XTranPrune(
-    main_model, SA_model, main_dataloader, SA_dataloader, device, config, verbose=2
+    main_model,
+    SA_model,
+    main_dataloader,
+    SA_dataloader,
+    device,
+    config,
+    prun_iter_cnt,
+    verbose=2,
+    MA_vectors=None,
 ):
     main_DL_iter = iter(main_dataloader)
     SA_DL_iter = iter(SA_dataloader)
 
-    ###############################  Getting the attention masks for all modules ###############################
+    ###############################  Getting the attribution vectors for all nodes in both branches ###############################
 
     num_tokens = main_model.patch_embed.num_patches + 1
     blk_attrs_shape = (
@@ -50,23 +59,23 @@ def XTranPrune(
         SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
 
         for i in range(main_inputs.shape[0]):  # iterate over batch size
-            if config["prune"]["method"] == "attr":
-                main_blk_attrs_input = main_model.generate_attr(
+            if config["prune"]["cont_method"] == "attn":
+                main_blk_attrs_input = main_model.generate_attn(
                     input=main_inputs[i].unsqueeze(0)
                 )
-                SA_blk_attrs_input = SA_model.generate_attr(
+                SA_blk_attrs_input = SA_model.generate_attn(
                     input=SA_inputs[i].unsqueeze(0)
                 )
             else:
                 cam, main_blk_attrs_input = main_model.generate_LRP(
                     input=main_inputs[i].unsqueeze(0),
                     index=main_labels[i],
-                    method=config["prune"]["method"],
+                    method=config["prune"]["cont_method"],
                 )
                 cam, SA_blk_attrs_input = SA_model.generate_LRP(
                     input=SA_inputs[i].unsqueeze(0),
                     index=SA_labels[i],
-                    method=config["prune"]["method"],
+                    method=config["prune"]["cont_method"],
                 )
 
             main_blk_attrs_batch = main_blk_attrs_batch + main_blk_attrs_input.detach()
@@ -86,23 +95,118 @@ def XTranPrune(
     main_blk_attrs_iter = main_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
     SA_blk_attrs_iter = SA_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
 
+    torch.save(
+        main_blk_attrs_iter,
+        os.path.join(
+            config["output_folder_path"],
+            "Log_files",
+            f"main_attr_Iter={prun_iter_cnt + 1}.pth",
+        ),
+    )
+    torch.save(
+        SA_blk_attrs_iter,
+        os.path.join(
+            config["output_folder_path"],
+            "Log_files",
+            f"SA_attr_Iter={prun_iter_cnt + 1}.pth",
+        ),
+    )
+
+    # getting the moving average of attribution vectors and measuing the uncertainty
+    if config["prune"]["method"] == "MA":
+
+        main_blk_attrs_MA = MA_vectors[0]
+        SA_blk_attrs_MA = MA_vectors[1]
+
+        if main_blk_attrs_MA == None:
+            main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter)
+        if SA_blk_attrs_MA == None:
+            SA_blk_attrs_MA = torch.zeros_like(SA_blk_attrs_iter)
+
+        beta1 = config["prune"]["beta1"]
+        main_blk_attrs_MA = (
+            beta1 * main_blk_attrs_MA + (1 - beta1) * main_blk_attrs_iter
+        )
+        SA_blk_attrs_MA = beta1 * SA_blk_attrs_MA + (1 - beta1) * SA_blk_attrs_iter
+
+        MA_vectors[0] = main_blk_attrs_MA
+        MA_vectors[1] = SA_blk_attrs_MA
+
+        main_blk_attrs_iter_final = main_blk_attrs_MA
+        SA_blk_attrs_iter_final = SA_blk_attrs_MA
+
+    elif config["prune"]["method"] == "MA_Uncertainty":
+        main_blk_attrs_MA = MA_vectors[0]
+        SA_blk_attrs_MA = MA_vectors[1]
+        main_blk_Uncer_MA = MA_vectors[2]
+        SA_blk_Uncer_MA = MA_vectors[3]
+
+        if main_blk_attrs_MA == None:
+            main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter)
+        if SA_blk_attrs_MA == None:
+            SA_blk_attrs_MA = torch.zeros_like(SA_blk_attrs_iter)
+        if main_blk_Uncer_MA == None:
+            main_blk_Uncer_MA = torch.zeros_like(main_blk_attrs_iter)
+        if SA_blk_Uncer_MA == None:
+            SA_blk_Uncer_MA = torch.zeros_like(SA_blk_attrs_iter)
+
+        beta1 = config["prune"]["beta1"]
+        main_blk_attrs_MA = (
+            beta1 * main_blk_attrs_MA + (1 - beta1) * main_blk_attrs_iter
+        )
+        SA_blk_attrs_MA = beta1 * SA_blk_attrs_MA + (1 - beta1) * SA_blk_attrs_iter
+
+        beta2 = config["prune"]["beta2"]
+        main_blk_Uncer_MA = (
+            beta2 * main_blk_Uncer_MA
+            + (1 - beta2) * (main_blk_attrs_iter - main_blk_attrs_MA).abs()
+        )
+        SA_blk_Uncer_MA = (
+            beta2 * SA_blk_Uncer_MA
+            + (1 - beta2) * (SA_blk_attrs_iter - SA_blk_attrs_MA).abs()
+        )
+
+        MA_vectors[0] = main_blk_attrs_MA
+        MA_vectors[1] = SA_blk_attrs_MA
+        MA_vectors[2] = main_blk_Uncer_MA
+        MA_vectors[3] = SA_blk_Uncer_MA
+
+        SA_blk_Uncer_MA_flt = SA_blk_Uncer_MA.view(
+            SA_blk_Uncer_MA.size(0), SA_blk_Uncer_MA.size(1), -1
+        )
+        SA_blk_Uncer_MA_max_values, _ = SA_blk_Uncer_MA_flt.max(dim=2, keepdim=True)
+        SA_blk_Uncer_MA_max_values = SA_blk_Uncer_MA_max_values.unsqueeze(2)
+
+        main_blk_attrs_iter_final = main_blk_attrs_MA * main_blk_Uncer_MA
+        SA_blk_attrs_iter_final = SA_blk_attrs_MA * (
+            SA_blk_Uncer_MA_max_values - SA_blk_Uncer_MA
+        )
+
     ###############################  Generating the pruning mask ###############################
 
     prun_mask = []
-    for blk_idx in range(main_blk_attrs_iter.shape[0]):
+    for blk_idx in range(main_blk_attrs_iter_final.shape[0]):
         prun_mask_blk = []
-        for h in range(main_blk_attrs_iter.shape[1]):
+        for h in range(main_blk_attrs_iter_final.shape[1]):
             # Generating the main mask
-            main_attrs_flt = main_blk_attrs_iter[blk_idx][h].flatten()
+            main_attrs_flt = main_blk_attrs_iter_final[blk_idx][h].flatten()
 
             threshold = torch.quantile(
                 main_attrs_flt, 1 - config["prune"]["main_mask_retain_rate"]
             )  # (this param)% of the most important main params will be retained
 
-            main_mask = (main_blk_attrs_iter[blk_idx][h] < threshold).float()
+            main_mask = (main_blk_attrs_iter_final[blk_idx][h] < threshold).float()
+            torch.save(
+                main_mask,
+                os.path.join(
+                    config["output_folder_path"],
+                    "Log_files",
+                    f"main_mask_Iter={prun_iter_cnt + 1}.pth",
+                ),
+            )
 
             # Generating the pruning mask from SA branch
-            can_be_pruned = SA_blk_attrs_iter[blk_idx][h] * main_mask
+            can_be_pruned = SA_blk_attrs_iter_final[blk_idx][h] * main_mask
             can_be_pruned_flt = can_be_pruned.flatten()
 
             k = int(
@@ -114,7 +218,7 @@ def XTranPrune(
             prun_mask_blk_head[top_k_indices] = 0
 
             prun_mask_blk_head = prun_mask_blk_head.reshape(
-                (main_blk_attrs_iter.shape[2], main_blk_attrs_iter.shape[3])
+                (main_blk_attrs_iter_final.shape[2], main_blk_attrs_iter_final.shape[3])
             )
             prun_mask_blk.append(prun_mask_blk_head)
 
@@ -156,10 +260,23 @@ def XTranPrune(
 
     main_model.set_attn_mask(prun_mask)
 
-    return main_model
+    return main_model, MA_vectors
 
 
-def main(config):
+def main(config, args):
+
+    if not os.path.exists(os.path.join(config["output_folder_path"], "Log_files")):
+        os.mkdir(os.path.join(config["output_folder_path"], "Log_files"))
+
+    if not os.path.exists(os.path.join(config["output_folder_path"], "Weights")):
+        os.mkdir(os.path.join(config["output_folder_path"], "Weights"))
+
+    log_file_path = os.path.join(
+        config["output_folder_path"], "Log_files", "output.log"
+    )
+
+    sys.stdout = Logger(log_file_path)
+
     print("CUDA is available: {} \n".format(torch.cuda.is_available()))
     print("Starting... \n")
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -168,7 +285,7 @@ def main(config):
     print(config["prune"])
 
     shutil.copy(
-        "Configs/configs_server.yml",
+        args.config,
         os.path.join(config["output_folder_path"], "configs.yml"),
     )
 
@@ -221,6 +338,18 @@ def main(config):
     best_bias_metric = config["prune"]["bias_metric_prev"]
     val_metrics_df = None
 
+    main_blk_attrs_MA = None
+    SA_blk_attrs_MA = None
+    main_blk_Uncer_MA = None
+    SA_blk_Uncer_MA = None
+
+    MA_vectors = [
+        main_blk_attrs_MA,
+        SA_blk_attrs_MA,
+        main_blk_Uncer_MA,
+        SA_blk_Uncer_MA,
+    ]
+
     while (
         consecutive_no_improvement <= config["prune"]["max_consecutive_no_improvement"]
     ):
@@ -230,8 +359,10 @@ def main(config):
             f"+++++++++++++++++++++++++++++ Pruning Iteration {prun_iter_cnt+1} +++++++++++++++++++++++++++++"
         )
 
+        model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt+1}"
+
         if prun_iter_cnt == 0:
-            pruned_model = XTranPrune(
+            pruned_model, MA_vectors = XTranPrune(
                 main_model=main_model,
                 SA_model=SA_model,
                 main_dataloader=main_dataloaders["train"],
@@ -239,9 +370,11 @@ def main(config):
                 device=device,
                 verbose=config["prune"]["verbose"],
                 config=config,
+                MA_vectors=MA_vectors,
+                prun_iter_cnt=prun_iter_cnt,
             )
         else:
-            pruned_model = XTranPrune(
+            pruned_model, MA_vectors = XTranPrune(
                 main_model=pruned_model,
                 SA_model=SA_model,
                 main_dataloader=main_dataloaders["train"],
@@ -249,9 +382,9 @@ def main(config):
                 device=device,
                 verbose=config["prune"]["verbose"],
                 config=config,
+                MA_vectors=MA_vectors,
+                prun_iter_cnt=prun_iter_cnt,
             )
-
-        model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt+1}"
 
         val_metrics, _ = eval_model(
             pruned_model,
@@ -309,6 +442,7 @@ def main(config):
 
         model_path = os.path.join(
             config["output_folder_path"],
+            "Weights",
             f"{model_name}.pth",
         )
         checkpoint = {
@@ -354,4 +488,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     with open(args.config, "r") as fh:
         config = yaml.load(fh, Loader=yaml.FullLoader)
-    main(config)
+    main(config, args)
