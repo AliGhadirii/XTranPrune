@@ -14,6 +14,7 @@ from Utils.Metrics import plot_metrics
 from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
 from Evaluation import eval_model
+from Explainability.ViT_CX.ViT_CX import ViT_CX
 
 
 def XTranPrune(
@@ -65,6 +66,28 @@ def XTranPrune(
                 )
                 SA_blk_attrs_input = SA_model.generate_attn(
                     input=SA_inputs[i].unsqueeze(0)
+                )
+            if config["prune"]["cont_method"] == "ViT_CX":
+
+                # Perform ViT-CX
+                main_vis = ViT_CX(
+                    model=main_model,
+                    image=main_inputs[i].unsqueeze(0),
+                    target_layer=main_model.blocks[-1].norm1,
+                    target_category=main_labels[i],
+                    distance_threshold=0.1,
+                    gpu_batch=50,
+                    num_classes=3,
+                )
+
+                SA_vis = ViT_CX(
+                    model=SA_model,
+                    image=SA_inputs[i].unsqueeze(0),
+                    target_layer=SA_model.blocks[-1].norm1,
+                    target_category=SA_labels[i],
+                    distance_threshold=0.1,
+                    gpu_batch=50,
+                    num_classes=2,
                 )
             else:
                 cam, main_blk_attrs_input = main_model.generate_LRP(

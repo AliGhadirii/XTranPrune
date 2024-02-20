@@ -7,3 +7,4 @@ scikit-image
 scikit-learn
 einops
 opencv-python
+ttach
