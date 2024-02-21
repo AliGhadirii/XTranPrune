@@ -1,6 +1,7 @@
 """ Vision Transformer (ViT) in PyTorch
 Hacked together by / Copyright 2020 Ross Wightman
 """
+
 import torch
 import torch.nn as nn
 from einops import rearrange
@@ -335,9 +336,9 @@ class VisionTransformer(nn.Module):
         self.num_classes = num_classes
         self.depth = depth
         self.add_hook = add_hook
-        self.num_features = (
-            self.embed_dim
-        ) = embed_dim  # num_features for consistency with other models
+        self.num_features = self.embed_dim = (
+            embed_dim  # num_features for consistency with other models
+        )
         self.patch_embed = PatchEmbed(
             img_size=img_size,
             patch_size=patch_size,
@@ -458,7 +459,7 @@ class VisionTransformer(nn.Module):
         start_layer=0,
         **kwargs,
     ):
-        
+
         cam = self.head.relprop(cam, **kwargs)
         cam = cam.unsqueeze(1)
         cam = self.pool.relprop(cam, **kwargs)
@@ -524,7 +525,7 @@ class VisionTransformer(nn.Module):
             blk_attrs = torch.stack(blk_attrs)
 
             return None, blk_attrs
-        
+
         elif method == "last_layer":
             cam = self.blocks[-1].attn.get_attn_cam()
             cam = cam[0].reshape(-1, cam.shape[-1], cam.shape[-1])
@@ -555,53 +556,6 @@ class VisionTransformer(nn.Module):
             return cam
         else:
             print("ERROR: Invalid method name.")
-
-    def generate_LRP(
-        self,
-        input,
-        index=None,
-        method="transformer_attribution",
-        is_ablation=False,
-        start_layer=0,
-    ):
-        output = self(input)
-        kwargs = {"alpha": 1}
-
-        if index == None:
-            index = np.argmax(output.cpu().data.numpy(), axis=-1)
-
-        if self.num_classes == 2:
-            # In binary classification, the output is a single scalar and we initialize the target vector with the output logit of the network.
-            one_hot = np.zeros((1, 1), dtype=np.float32)
-            one_hot[0, 0] = output.cpu().data.numpy()
-        else:
-            one_hot = np.zeros((1, output.size()[-1]), dtype=np.float32)
-            one_hot[0, index] = 1
-
-        one_hot_vector = one_hot
-        one_hot = torch.from_numpy(one_hot).requires_grad_(True)
-        one_hot = torch.sum(one_hot.cuda() * output)
-
-        self.zero_grad()
-        one_hot.backward(retain_graph=True)
-
-        return self.relprop(
-            torch.tensor(one_hot_vector).to(input.device),
-            method=method,
-            is_ablation=is_ablation,
-            start_layer=start_layer,
-            **kwargs,
-        )
-
-    def generate_attn(self, input):
-        output = self(input)
-        blk_attns = []
-        for blk in self.blocks:
-            attn = blk.attn.get_attn()[0]
-            attn = attn.clamp(min=0)
-            blk_attns.append(attn)
-        blk_attns = torch.stack(blk_attns)
-        return blk_attns
 
 
 def _conv_filter(state_dict, patch_size=16):
