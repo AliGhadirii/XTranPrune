@@ -2,7 +2,7 @@ seed: 42
 root_image_dir: /home/ali/Datasets/Fitz17k/Images/
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
 dataset_name: Fitz17k
-output_folder_path: /home/ali/Outputs/Fitzpatrick17k/Pruning/MA_Uncertain_New/beta=40_balanced/
+output_folder_path: /home/ali/Outputs/Fitzpatrick17k/Pruning/MA_Uncertain_orig/beta=40_new/
 num_workers: 1
 default:
   batch_size: 64
