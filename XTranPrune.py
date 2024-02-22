@@ -13,6 +13,7 @@ from Utils.Misc_utils import set_seeds, Logger, get_stat, get_mask_idx
 from Utils.Metrics import plot_metrics
 from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
+from Explainability.ViT_Explainer import Explainer
 from Evaluation import eval_model
 
 
@@ -29,6 +30,9 @@ def XTranPrune(
 ):
     main_DL_iter = iter(main_dataloader)
     SA_DL_iter = iter(SA_dataloader)
+
+    main_explainer = Explainer(main_model)
+    SA_explainer = Explainer(SA_model)
 
     ###############################  Getting the attribution vectors for all nodes in both branches ###############################
 
@@ -60,19 +64,28 @@ def XTranPrune(
 
         for i in range(main_inputs.shape[0]):  # iterate over batch size
             if config["prune"]["cont_method"] == "attn":
-                main_blk_attrs_input = main_model.generate_attn(
+                main_blk_attrs_input = main_explainer.generate_attn(
                     input=main_inputs[i].unsqueeze(0)
                 )
-                SA_blk_attrs_input = SA_model.generate_attn(
+                SA_blk_attrs_input = SA_explainer.generate_attn(
                     input=SA_inputs[i].unsqueeze(0)
                 )
+            elif config["prune"]["cont_method"] == "TranInter":
+                cam, main_blk_attrs_input = main_explainer.generate_TranInter(
+                    input=main_inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                )
+                cam, SA_blk_attrs_input = SA_explainer.generate_TranInter(
+                    input=SA_inputs[i].unsqueeze(0),
+                    index=SA_labels[i],
+                )
             else:
-                cam, main_blk_attrs_input = main_model.generate_LRP(
+                cam, main_blk_attrs_input = main_explainer.generate_LRP(
                     input=main_inputs[i].unsqueeze(0),
                     index=main_labels[i],
                     method=config["prune"]["cont_method"],
                 )
-                cam, SA_blk_attrs_input = SA_model.generate_LRP(
+                cam, SA_blk_attrs_input = SA_explainer.generate_LRP(
                     input=SA_inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                     method=config["prune"]["cont_method"],
