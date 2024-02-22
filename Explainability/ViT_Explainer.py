@@ -78,7 +78,7 @@ class Explainer:
         blk_attns = torch.stack(blk_attns)
         return blk_attns
 
-    def generate_ours(
+    def generate_TranInter(
         self,
         input,
         index=None,
@@ -91,12 +91,19 @@ class Explainer:
         ssl=False,
     ):
         b = input.shape[0]
-        output = self.model(input, register_hook=True)
+        # output = self.model(input, register_hook=True)
+        output = self.model(input)
         if index == None:
             index = np.argmax(output.cpu().data.numpy(), axis=-1)
 
-        one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
-        one_hot[np.arange(b), index] = 1
+        if self.model.num_classes == 2:
+            # In binary classification, the output is a single scalar and we initialize the target vector with the output logit of the network.
+            one_hot = np.zeros((b, 1), dtype=np.float32)
+            one_hot[np.arange(b), 0] = output.cpu().data.numpy()
+        else:
+            one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+            one_hot[np.arange(b), index] = 1
+
         one_hot_vector = one_hot
         one_hot = torch.from_numpy(one_hot).requires_grad_(True)
         one_hot = torch.sum(one_hot.cuda() * output)
@@ -104,95 +111,44 @@ class Explainer:
         self.model.zero_grad()
         one_hot.backward(retain_graph=True)
 
-        _, num_head, num_tokens, _ = (
-            self.model.blocks[-1].attn.get_attention_map().shape
+        kwargs = {"alpha": 1}
+        cam = self.model.head.relprop(
+            torch.tensor(one_hot_vector).to(input.device), **kwargs
         )
+        cam = cam.unsqueeze(1)
+        cam = self.model.pool.relprop(cam, **kwargs)
+        cam = self.model.norm.relprop(cam, **kwargs)
+        for blk in reversed(self.model.blocks):
+            cam = blk.relprop(cam, **kwargs)
 
-        R = torch.eye(num_tokens, num_tokens).expand(b, num_tokens, num_tokens).cuda()
+        _, num_head, num_tokens, _ = self.model.blocks[-1].attn.get_attn().shape
+
+        R = (
+            torch.eye(num_tokens, num_tokens).expand(b, num_tokens, num_tokens).cuda()
+        )  # [1,197, 197]
+
         for nb, blk in enumerate(self.model.blocks):
             if nb < start_layer - 1:
                 continue
 
-            grad = blk.attn.get_attn_gradients()
+            grad = blk.attn.get_attn_gradients()  # [1,6,197,197]
             grad = grad.reshape(-1, grad.shape[-2], grad.shape[-1])
-            cam = blk.attn.get_attention_map()
+            # cam = blk.attn.get_attention_map()
+            cam = blk.attn.get_attn_cam()  # [1,6,197,197]
             cam = cam.reshape(-1, cam.shape[-2], cam.shape[-1])
 
             Ih = torch.mean(
                 torch.matmul(cam.transpose(-1, -2), grad).abs(), dim=(-1, -2)
             )
-            Ih = Ih / torch.sum(Ih)
+            Ih = Ih / torch.sum(Ih)  # [6]
             cam = torch.matmul(Ih, cam.reshape(num_head, -1)).reshape(
                 num_tokens, num_tokens
             )
 
-            R = R + torch.matmul(cam.cuda(), R.cuda())
+            R = R + torch.matmul(cam.cuda(), R.cuda())  # [1,197, 197]
 
         if ssl:
-            if mae:
-                return R[:, 1:, 1:].abs().mean(axis=1)
-            elif dino:
-                return R[:, 1:, 1:].abs().mean(axis=1) + R[:, 0, 1:].abs()
-            else:
-                return R[:, 0, 1:].abs()
-
-        #         avg head
-        #         R = torch.eye(num_tokens, num_tokens).expand(b, num_tokens, num_tokens).cuda()
-        #         for nb, blk in enumerate(self.model.blocks):
-        #             if nb < start_layer-1:
-        #                 continue
-        #             cam = blk.attn.get_attention_map()
-        #             cam = cam.reshape(-1, cam.shape[-2], cam.shape[-1])
-        #             cam = cam.mean(0)
-
-        #             R += torch.matmul(cam.cuda(), R.cuda())
-
-        # last one
-        #         R = torch.eye(num_tokens, num_tokens).expand(b, num_tokens, num_tokens).cuda()
-        #         blk = self.model.blocks[-1]
-
-        #         grad = blk.attn.get_attn_gradients()
-        #         grad = grad.reshape(-1, grad.shape[-2], grad.shape[-1])
-        #         cam = blk.attn.get_attention_map()
-        #         cam = cam.reshape(-1, cam.shape[-2], cam.shape[-1])
-
-        #         Ih = torch.mean(torch.matmul(cam.transpose(-1,-2), grad).abs(), dim=(-1,-2))
-        #         Ih = Ih/torch.sum(Ih)
-        #         cam = torch.matmul(Ih,cam.reshape(num_head,-1)).reshape(num_tokens,num_tokens)
-
-        #         R += torch.matmul(cam.cuda(), R.cuda())
-
-        #         last gradient
-        #         gradients = self.model.blocks[-1].attn.get_attn_gradients()
-        #         W_state = (gradients / steps).clamp(min=0).mean(1).reshape(b, num_tokens, num_tokens)
-        #         R = W_state * R
-
-        #         Smooth gradient
-        #         total_gradients = torch.zeros(b, num_head, num_tokens, num_tokens).cuda()
-        #         for i in range(samples):
-        #             # forward propagation
-        #             dev = noise*(torch.max(input)-torch.min(input))
-        #             noise = torch.normal(0.0, 0.3859, [1, 3, 224, 224], dtype=torch.float32).cuda()
-        #             data_perturbed = input+noise
-
-        #             # backward propagation
-        #             output = self.model(data_perturbed, register_hook=True)
-        #             one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
-        #             one_hot[np.arange(b), index] = 1
-        #             one_hot_vector = one_hot
-        #             one_hot = torch.from_numpy(one_hot).requires_grad_(True)
-        #             one_hot = torch.sum(one_hot.cuda() * output)
-
-        #             self.model.zero_grad()
-        #             one_hot.backward(retain_graph=True)
-
-        #             # cal grad
-        #             gradients = self.model.blocks[-1].attn.get_attn_gradients()
-        #             total_gradients += gradients
-
-        #         W_state = (total_gradients / steps).clamp(min=0).mean(1)[:, 0, :].reshape(b, 1, num_tokens)
-
-        #         R = W_state * R
+            return R[:, 0, 1:].abs(), None
 
         total_gradients = torch.zeros(b, num_head, num_tokens, num_tokens).cuda()
         for alpha in np.linspace(0, 1, steps):
@@ -200,10 +156,17 @@ class Explainer:
             data_scaled = input * alpha
 
             # backward propagation
-            output = self.model(data_scaled, register_hook=True)
-            one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
-            one_hot[np.arange(b), index] = 1
-            one_hot_vector = one_hot
+            # output = self.model(data_scaled, register_hook=True)
+            output = self.model(data_scaled)
+
+            if self.model.num_classes == 2:
+                # In binary classification, the output is a single scalar and we initialize the target vector with the output logit of the network.
+                one_hot = np.zeros((b, 1), dtype=np.float32)
+                one_hot[np.arange(b), 0] = output.cpu().data.numpy()
+            else:
+                one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+                one_hot[np.arange(b), index] = 1
+
             one_hot = torch.from_numpy(one_hot).requires_grad_(True)
             one_hot = torch.sum(one_hot.cuda() * output)
 
@@ -222,12 +185,7 @@ class Explainer:
         )
         R = W_state * R
 
-        if mae:
-            return R[:, 1:, 1:].mean(axis=1)
-        elif dino:
-            return R[:, 1:, 1:].mean(axis=1) + R[:, 0, 1:]
-        else:
-            return R[:, 0, 1:]
+        return R[:, 0, 1:], None
 
     def generate_ig(
         self, input, index=None, steps=20, start_layer=6, samples=20, noise=0.2

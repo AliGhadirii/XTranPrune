@@ -70,6 +70,15 @@ def XTranPrune(
                 SA_blk_attrs_input = SA_explainer.generate_attn(
                     input=SA_inputs[i].unsqueeze(0)
                 )
+            elif config["prune"]["cont_method"] == "TranInter":
+                cam, main_blk_attrs_input = main_explainer.generate_TranInter(
+                    input=main_inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                )
+                cam, SA_blk_attrs_input = SA_explainer.generate_TranInter(
+                    input=SA_inputs[i].unsqueeze(0),
+                    index=SA_labels[i],
+                )
             else:
                 cam, main_blk_attrs_input = main_explainer.generate_LRP(
                     input=main_inputs[i].unsqueeze(0),
