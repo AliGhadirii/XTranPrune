@@ -179,18 +179,17 @@ class Attention(nn.Module):
 
         attn = self.softmax(dots)
         attn = self.attn_drop(attn)
+        self.save_attn_map(attn)
 
         if self.attn_pruning_mask is not None:
             # element-wise multiplication of the mask of all h heads with the attention matrices of all h heads for all of the #batch_size records
             # (we expand the mask to match the shape of the attention matrices which includes the batch demension)
             attn = attn * self.attn_pruning_mask.expand(attn.shape)
 
-        out = self.matmul2([attn, v])
-
-        self.save_attn_map(attn)
-
-        if self.add_hook:
+        if x.requires_grad and self.add_hook:
             attn.register_hook(self.save_attn_gradients)
+
+        out = self.matmul2([attn, v])
 
         out = rearrange(out, "b h n d -> b n (h d)")
         out = self.proj(out)
@@ -449,7 +448,7 @@ class VisionTransformer(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
         x = self.add([x, self.pos_embed])
 
-        if self.add_hook:
+        if x.requires_grad and self.add_hook:
             x.register_hook(self.save_inp_grad)
 
         for blk in self.blocks:

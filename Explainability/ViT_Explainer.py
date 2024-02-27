@@ -92,12 +92,13 @@ class Explainer:
         one_hot = torch.from_numpy(one_hot).requires_grad_(True)
         one_hot = torch.sum(one_hot.cuda() * output)
         
-        # self.model.zero_grad()
-        # one_hot.backward(retain_graph=True)
+        self.model.zero_grad()
+        one_hot.backward(retain_graph=True)
 
-        del one_hot
-        del output
-        self.model.clear_gradients()
+        # del one_hot
+        # del output
+        # self.model.clear_gradients()
+        # self.model.zero_grad()
 
         b, h, s, _ = self.model.blocks[-1].attn.get_attn_map().shape
 
@@ -110,7 +111,7 @@ class Explainer:
 
         blk_attrs = []
         # Settign the attention map for the last layer
-        blk_attrs.append(self.model.blocks[-1].attn.get_attn_map().cpu())
+        blk_attrs.append(self.model.blocks[-1].attn.get_attn_map())
         for i in range(start_layer, num_blocks - 1)[::-1]:
             attn = self.model.blocks[i].attn.get_attn_map().mean(1).detach()
             attn_all = self.model.blocks[i].attn.get_attn_map().detach()
@@ -132,89 +133,83 @@ class Explainer:
                     states_all[:, h_idx, :, :] + states_all_res[:, h_idx, :, :]
                 )
 
-            blk_attrs = [states_all.clone().cpu()] + blk_attrs
+            blk_attrs = [states_all.clone()] + blk_attrs
             
-            del attn
-            del attn_all
             torch.cuda.empty_cache()
         
-        del states_all
-        del states_all_res
-        del states_
+        # del states_all
+        # del states_all_res
+        # del states_
 
         torch.cuda.empty_cache()
-        states = states.cpu()
 
         blk_attrs = torch.stack(blk_attrs, dim=1)
 
-        # total_gradients = torch.zeros(b, h, s, s)
-        # for alpha in np.linspace(0, 1, steps):
-        #     # forward propagation
-        #     data_scaled = input * alpha
+        total_gradients = torch.zeros(b, h, s, s).to(input.device)
+        for alpha in np.linspace(0, 1, steps):
+            # forward propagation
+            data_scaled = input * alpha
 
-        #     # backward propagation
-        #     output = self.model(data_scaled)
+            # backward propagation
+            output = self.model(data_scaled)
 
-        #     if self.model.num_classes == 2:
-        #         # In binary classification, the output is a single scalar and we initialize the target vector with the output logit of the network.
-        #         one_hot = np.zeros((b, 1), dtype=np.float32)
-        #         one_hot[np.arange(b), 0] = output.cpu().data.numpy()
-        #     else:
-        #         one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
-        #         one_hot[np.arange(b), index] = 1
+            if self.model.num_classes == 2:
+                # In binary classification, the output is a single scalar and we initialize the target vector with the output logit of the network.
+                one_hot = np.zeros((b, 1), dtype=np.float32)
+                one_hot[np.arange(b), 0] = output.cpu().data.numpy()
+            else:
+                one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+                one_hot[np.arange(b), index] = 1
 
-        #     one_hot = torch.from_numpy(one_hot).requires_grad_(True)
-        #     one_hot = torch.sum(one_hot.cuda() * output)
+            one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+            one_hot = torch.sum(one_hot.cuda() * output)
 
-        #     output = None
+            output = None
             
-        #     self.model.zero_grad()
-        #     one_hot.backward(retain_graph=True)
+            self.model.zero_grad()
+            one_hot.backward(retain_graph=True)
 
-        #     # cal grad
-        #     gradients = self.model.blocks[-1].attn.get_attn_gradients().cpu()
-        #     total_gradients = total_gradients + gradients
+            # cal grad
+            gradients = self.model.blocks[-1].attn.get_attn_gradients()
+            total_gradients = total_gradients + gradients
 
-        #     data_scaled = None
-        #     output = None
-        #     one_hot = None
-        #     gradients = None
-        #     torch.cuda.empty_cache()
+            # data_scaled = None
+            # output = None
+            # one_hot = None
+            # gradients = None
+            # torch.cuda.empty_cache()
 
-        # input = None
-        # index = None
-        # torch.cuda.empty_cache()
+        del input
+        del index
+        torch.cuda.empty_cache()
         
-        # if with_integral:
-        #     W_state = (
-        #         (total_gradients / steps).clamp(min=0).mean(1)[:, 0, :].reshape(b, 1, s)
-        #     )
-        #     W_state_all = (total_gradients / steps).clamp(min=0)
-        # else:
-        #     W_state = (
-        #         self.model.blocks[-1]
-        #         .attn.get_attn_gradients()
-        #         .cpu()
-        #         .clamp(min=0)
-        #         .mean(1)[:, 0, :]
-        #         .reshape(b, 1, s)
-        #     )
+        if with_integral:
+            W_state = (
+                (total_gradients / steps).clamp(min=0).mean(1)[:, 0, :].reshape(b, 1, s)
+            )
+            W_state_all = (total_gradients / steps).clamp(min=0)
+        else:
+            W_state = (
+                self.model.blocks[-1]
+                .attn.get_attn_gradients()
+                .clamp(min=0)
+                .mean(1)[:, 0, :]
+                .reshape(b, 1, s)
+            )
 
-        #     W_state_all = self.model.blocks[-1].attn.get_attn_gradients().cpu().clamp(min=0)
+            W_state_all = self.model.blocks[-1].attn.get_attn_gradients().clamp(min=0)
 
-        # if first_state:
-        #     states = (
-        #         self.model.blocks[-1]
-        #         .attn.get_attn_map().cpu()
-        #         .mean(1)[:, 0, :]
-        #         .reshape(b, 1, s)
-        #     )
+        if first_state:
+            states = (
+                self.model.blocks[-1]
+                .attn.get_attn_map()
+                .mean(1)[:, 0, :]
+                .reshape(b, 1, s)
+            )
         
-        # states = states * W_state
-        # blk_attrs = blk_attrs * W_state_all.unsqueeze(1)
+        states = states * W_state
+        blk_attrs = blk_attrs * W_state_all.unsqueeze(1)
 
-        # Clear the GPU cache
-        self.model.zero_grad()
         # self.model.clear_gradients()
         torch.cuda.empty_cache()
 

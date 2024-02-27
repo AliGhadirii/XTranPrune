@@ -43,10 +43,8 @@ def XTranPrune(
         num_tokens,
         num_tokens,
     )
-    # main_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
-    # SA_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
-    main_blk_attrs_iter = torch.zeros(blk_attrs_shape)
-    SA_blk_attrs_iter = torch.zeros(blk_attrs_shape)
+    main_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
+    SA_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
 
     for itr in tqdm(
         range(config["prune"]["num_batch_per_iter"]),
@@ -61,10 +59,8 @@ def XTranPrune(
         SA_inputs = SA_BR_batch["image"].to(device)
         SA_labels = SA_BR_batch[config["prune"]["SA_level"]].to(device)
 
-        # main_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
-        # SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
-        main_blk_attrs_batch = torch.zeros(blk_attrs_shape)
-        SA_blk_attrs_batch = torch.zeros(blk_attrs_shape)
+        main_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
+        SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
         
         for i in range(main_inputs.shape[0]):  # iterate over batch size
             if config["prune"]["cont_method"] == "attn":
@@ -98,7 +94,8 @@ def XTranPrune(
                     start_layer=0,
                     steps=1,
                 )
-            
+                main_blk_attrs_input = main_blk_attrs_input.squeeze(0)
+                SA_blk_attrs_input = SA_blk_attrs_input.squeeze(0)
             else:
                 cam, main_blk_attrs_input = main_explainer.generate_LRP(
                     input=main_inputs[i].unsqueeze(0),
@@ -112,8 +109,8 @@ def XTranPrune(
                 )
 
 
-            main_blk_attrs_batch = main_blk_attrs_batch + main_blk_attrs_input.cpu()
-            SA_blk_attrs_batch = SA_blk_attrs_batch + SA_blk_attrs_input.cpu()
+            main_blk_attrs_batch = main_blk_attrs_batch + main_blk_attrs_input.detach()
+            SA_blk_attrs_batch = SA_blk_attrs_batch + SA_blk_attrs_input.detach()
 
             main_blk_attrs_input = None
             SA_blk_attrs_input = None
@@ -298,8 +295,7 @@ def XTranPrune(
         print(
             f"New #pruned_parameters - Previous #pruned_parameters = {num_pruned_new} - {num_pruned_prev} = {num_pruned_new - num_pruned_prev} "
         )
-    # main_model.set_attn_pruning_mask(prun_mask)
-    main_model.set_attn_pruning_mask(prun_mask.to(device))
+    main_model.set_attn_pruning_mask(prun_mask)
 
     return main_model, MA_vectors
 
