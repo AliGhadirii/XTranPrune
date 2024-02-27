@@ -25,7 +25,6 @@ def compute_rollout_attention(all_layer_matrices, start_layer=0):
         joint_attention = matrices_aug[i].bmm(joint_attention)
     return joint_attention
 
-
 class Explainer:
     def __init__(self, model):
         self.model = model
@@ -68,11 +67,164 @@ class Explainer:
             **kwargs,
         )
 
+    def generate_TAM(
+        self,
+        input,
+        index=None,
+        start_layer=0,
+        steps=20,
+        with_integral=True,
+        first_state=False,
+    ):
+        b = input.shape[0]
+        output = self.model(input)
+        if index == None:
+            index = np.argmax(output.cpu().data.numpy(), axis=-1)
+
+        if self.model.num_classes == 2:
+            # In binary classification, the output is a single scalar and we initialize the target vector with the output logit of the network.
+            one_hot = np.zeros((b, 1), dtype=np.float32)
+            one_hot[np.arange(b), 0] = output.cpu().data.numpy()
+        else:
+            one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+            one_hot[np.arange(b), index] = 1
+
+        one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+        one_hot = torch.sum(one_hot.cuda() * output)
+        
+        # self.model.zero_grad()
+        # one_hot.backward(retain_graph=True)
+
+        del one_hot
+        del output
+        self.model.clear_gradients()
+
+        b, h, s, _ = self.model.blocks[-1].attn.get_attn_map().shape
+
+        num_blocks = len(self.model.blocks)
+
+        states = self.model.blocks[-1].attn.get_attn_map().detach().mean(1)[:, 0, :].reshape(b, 1, s)
+
+        states_all = self.model.blocks[-1].attn.get_attn_map().detach()
+        states_all_res = torch.zeros_like(states_all)
+
+        blk_attrs = []
+        # Settign the attention map for the last layer
+        blk_attrs.append(self.model.blocks[-1].attn.get_attn_map().cpu())
+        for i in range(start_layer, num_blocks - 1)[::-1]:
+            attn = self.model.blocks[i].attn.get_attn_map().mean(1).detach()
+            attn_all = self.model.blocks[i].attn.get_attn_map().detach()
+
+            states_ = states
+            states = states.bmm(attn)
+            # add residual
+            states += states_
+
+            # Doing the same thing for all tokens, handle multiple heads in this for loop and the rest is the same as above, except for
+            # we do the bmm for all tokens (197, 197) * (197*197) instead of (1, 197) * (197*197)
+
+            for h_idx in range(h):
+                states_all_res[:, h_idx, :, :] = states_all[:, h_idx, :, :]
+                states_all[:, h_idx, :, :] = states_all[:, h_idx, :, :].bmm(
+                    attn_all[:, h_idx, :, :]
+                )
+                states_all[:, h_idx, :, :] = (
+                    states_all[:, h_idx, :, :] + states_all_res[:, h_idx, :, :]
+                )
+
+            blk_attrs = [states_all.clone().cpu()] + blk_attrs
+            
+            del attn
+            del attn_all
+            torch.cuda.empty_cache()
+        
+        del states_all
+        del states_all_res
+        del states_
+
+        torch.cuda.empty_cache()
+        states = states.cpu()
+
+        blk_attrs = torch.stack(blk_attrs, dim=1)
+
+        # total_gradients = torch.zeros(b, h, s, s)
+        # for alpha in np.linspace(0, 1, steps):
+        #     # forward propagation
+        #     data_scaled = input * alpha
+
+        #     # backward propagation
+        #     output = self.model(data_scaled)
+
+        #     if self.model.num_classes == 2:
+        #         # In binary classification, the output is a single scalar and we initialize the target vector with the output logit of the network.
+        #         one_hot = np.zeros((b, 1), dtype=np.float32)
+        #         one_hot[np.arange(b), 0] = output.cpu().data.numpy()
+        #     else:
+        #         one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+        #         one_hot[np.arange(b), index] = 1
+
+        #     one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+        #     one_hot = torch.sum(one_hot.cuda() * output)
+
+        #     output = None
+            
+        #     self.model.zero_grad()
+        #     one_hot.backward(retain_graph=True)
+
+        #     # cal grad
+        #     gradients = self.model.blocks[-1].attn.get_attn_gradients().cpu()
+        #     total_gradients = total_gradients + gradients
+
+        #     data_scaled = None
+        #     output = None
+        #     one_hot = None
+        #     gradients = None
+        #     torch.cuda.empty_cache()
+
+        # input = None
+        # index = None
+        # torch.cuda.empty_cache()
+        
+        # if with_integral:
+        #     W_state = (
+        #         (total_gradients / steps).clamp(min=0).mean(1)[:, 0, :].reshape(b, 1, s)
+        #     )
+        #     W_state_all = (total_gradients / steps).clamp(min=0)
+        # else:
+        #     W_state = (
+        #         self.model.blocks[-1]
+        #         .attn.get_attn_gradients()
+        #         .cpu()
+        #         .clamp(min=0)
+        #         .mean(1)[:, 0, :]
+        #         .reshape(b, 1, s)
+        #     )
+
+        #     W_state_all = self.model.blocks[-1].attn.get_attn_gradients().cpu().clamp(min=0)
+
+        # if first_state:
+        #     states = (
+        #         self.model.blocks[-1]
+        #         .attn.get_attn_map().cpu()
+        #         .mean(1)[:, 0, :]
+        #         .reshape(b, 1, s)
+        #     )
+        
+        # states = states * W_state
+        # blk_attrs = blk_attrs * W_state_all.unsqueeze(1)
+
+        # Clear the GPU cache
+        self.model.zero_grad()
+        # self.model.clear_gradients()
+        torch.cuda.empty_cache()
+
+        return states[:, 0, 1:], blk_attrs
+
     def generate_attn(self, input):
         output = self.model(input)
         blk_attns = []
         for blk in self.model.blocks:
-            attn = blk.attn.get_attn()[0]
+            attn = blk.attn.get_attn_map()[0]
             attn = attn.clamp(min=0)
             blk_attns.append(attn)
         blk_attns = torch.stack(blk_attns)
@@ -121,7 +273,7 @@ class Explainer:
         for blk in reversed(self.model.blocks):
             cam = blk.relprop(cam, **kwargs)
 
-        _, num_head, num_tokens, _ = self.model.blocks[-1].attn.get_attn().shape
+        _, num_head, num_tokens, _ = self.model.blocks[-1].attn.get_attn_map().shape
 
         R = (
             torch.eye(num_tokens, num_tokens).expand(b, num_tokens, num_tokens).cuda()
@@ -134,7 +286,7 @@ class Explainer:
             grad = blk.attn.get_attn_gradients()  # [1,6,197,197]
             grad = grad.reshape(-1, grad.shape[-2], grad.shape[-1])
             # cam = blk.attn.get_attention_map()
-            cam = blk.attn.get_attn_cam()  # [1,6,197,197]
+            cam = blk.attn.get_attn_map()  # [1,6,197,197]
             cam = cam.reshape(-1, cam.shape[-2], cam.shape[-1])
 
             Ih = torch.mean(
