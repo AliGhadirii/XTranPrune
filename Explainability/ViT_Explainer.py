@@ -163,8 +163,6 @@ class Explainer:
 
             one_hot = torch.from_numpy(one_hot).requires_grad_(True)
             one_hot = torch.sum(one_hot.cuda() * output)
-
-            output = None
             
             self.model.zero_grad()
             one_hot.backward(retain_graph=True)
