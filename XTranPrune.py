@@ -86,13 +86,13 @@ def XTranPrune(
                     input=main_inputs[i].unsqueeze(0),
                     index=main_labels[i],
                     start_layer=0,
-                    steps=1,
+                    steps=10,
                 )
                 cam, SA_blk_attrs_input = SA_explainer.generate_TAM(
                     input=SA_inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                     start_layer=0,
-                    steps=1,
+                    steps=10,
                 )
                 main_blk_attrs_input = main_blk_attrs_input.squeeze(0)
                 SA_blk_attrs_input = SA_blk_attrs_input.squeeze(0)
