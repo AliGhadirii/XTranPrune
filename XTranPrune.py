@@ -212,6 +212,9 @@ def XTranPrune(
         SA_blk_attrs_iter_final = SA_blk_attrs_MA * (
             SA_blk_Uncer_MA_max_values - SA_blk_Uncer_MA
         )
+    else:
+        main_blk_attrs_iter_final = main_blk_attrs_iter
+        SA_blk_attrs_iter_final = SA_blk_attrs_iter
 
     ###############################  Generating the pruning mask ###############################
 
