@@ -119,24 +119,42 @@ class Attention(nn.Module):
         self.proj_drop = Dropout(proj_drop)
         self.softmax = Softmax(dim=-1)
 
+        self.attn_map = None
         self.attn_cam = None
-        self.attn = None
+        self.attn_gradients = None
+        self.attn_pruning_mask = None
         self.v = None
         self.v_cam = None
-        self.attn_gradients = None
-        self.attn_mask = None
 
-    def get_attn(self):
-        return self.attn
+    def get_attn_map(self):
+        return self.attn_map
 
-    def save_attn(self, attn):
-        self.attn = attn
+    def save_attn_map(self, attn):
+        self.attn_map = attn
 
     def save_attn_cam(self, cam):
         self.attn_cam = cam
 
     def get_attn_cam(self):
         return self.attn_cam
+
+    def save_attn_gradients(self, attn_gradients):
+        self.attn_gradients = attn_gradients
+
+    def get_attn_gradients(self):
+        return self.attn_gradients
+
+    def set_attn_pruning_mask(self, mask):
+        if self.attn_pruning_mask is None:
+            self.attn_pruning_mask = mask
+        else:
+            assert (
+                self.attn_pruning_mask.shape == mask.shape
+            ), "Attention class set_attn_pruning_mask(): The shape of the mask is not correct."
+            self.attn_pruning_mask = self.attn_pruning_mask * mask
+
+    def get_attn_pruning_mask(self):
+        return self.attn_pruning_mask
 
     def get_v(self):
         return self.v
@@ -150,24 +168,6 @@ class Attention(nn.Module):
     def get_v_cam(self):
         return self.v_cam
 
-    def save_attn_gradients(self, attn_gradients):
-        self.attn_gradients = attn_gradients
-
-    def get_attn_gradients(self):
-        return self.attn_gradients
-
-    def set_attn_mask(self, mask):
-        if self.attn_mask is None:
-            self.attn_mask = mask
-        else:
-            assert (
-                self.attn_mask.shape == mask.shape
-            ), "Attention class set_attn_mask(): The shape of the mask is not correct."
-            self.attn_mask = self.attn_mask * mask
-
-    def get_attn_mask(self):
-        return self.attn_mask
-
     def forward(self, x):
         b, n, _, h = *x.shape, self.num_heads
         qkv = self.qkv(x)
@@ -179,21 +179,22 @@ class Attention(nn.Module):
 
         attn = self.softmax(dots)
         attn = self.attn_drop(attn)
-        self.save_attn(attn)
+        self.save_attn_map(attn)
 
-        if self.attn_mask is not None:
+        if self.attn_pruning_mask is not None:
             # element-wise multiplication of the mask of all h heads with the attention matrices of all h heads for all of the #batch_size records
             # (we expand the mask to match the shape of the attention matrices which includes the batch demension)
-            attn = attn * self.attn_mask.expand(attn.shape)
+            attn = attn * self.attn_pruning_mask.expand(attn.shape)
 
-        if attn.requires_grad and self.add_hook:
+        if x.requires_grad and self.add_hook:
             attn.register_hook(self.save_attn_gradients)
 
         out = self.matmul2([attn, v])
-        out = rearrange(out, "b h n d -> b n (h d)")
 
+        out = rearrange(out, "b h n d -> b n (h d)")
         out = self.proj(out)
         out = self.proj_drop(out)
+
         return out
 
     def relprop(self, cam, **kwargs):
@@ -412,22 +413,30 @@ class VisionTransformer(nn.Module):
     def no_weight_decay(self):
         return {"pos_embed", "cls_token"}
 
-    def set_attn_mask(self, mask):
+    def set_attn_pruning_mask(self, mask):
         assert (
             mask.shape[0] == self.depth
         ), "ERROR: Mask shape doesn't match the depth of the model."
         for i in range(self.depth):
-            self.blocks[i].attn.set_attn_mask(mask[i])
+            self.blocks[i].attn.set_attn_pruning_mask(mask[i])
 
-    def get_attn_mask(self):
-        attn_mask = []
+    def get_attn_pruning_mask(self):
+        attn_pruning_mask = []
         for i in range(self.depth):
-            if self.blocks[i].attn.get_attn_mask() is None:
+            mask = self.blocks[i].attn.get_attn_pruning_mask()
+            if mask is None:
                 return None
-            attn_mask.append(self.blocks[i].attn.get_attn_mask().detach())
-        attn_mask = torch.stack(attn_mask, dim=0)
+            attn_pruning_mask.append(mask.detach())
+        attn_pruning_mask = torch.stack(attn_pruning_mask, dim=0)
 
-        return attn_mask
+        return attn_pruning_mask
+
+    def clear_gradients(self):
+        # Iterate through all parameters of the model and set their gradients to None
+        for param in self.parameters():
+            if param.grad is not None:
+                param.grad.detach_()
+                param.grad = None
 
     def forward(self, x):
         B = x.shape[0]

@@ -61,7 +61,7 @@ def XTranPrune(
 
         main_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
         SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
-
+        
         for i in range(main_inputs.shape[0]):  # iterate over batch size
             if config["prune"]["cont_method"] == "attn":
                 main_blk_attrs_input = main_explainer.generate_attn(
@@ -79,6 +79,23 @@ def XTranPrune(
                     input=SA_inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                 )
+
+            elif config["prune"]["cont_method"] == "TAM":
+                
+                cam, main_blk_attrs_input = main_explainer.generate_TAM(
+                    input=main_inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                    start_layer=0,
+                    steps=10,
+                )
+                cam, SA_blk_attrs_input = SA_explainer.generate_TAM(
+                    input=SA_inputs[i].unsqueeze(0),
+                    index=SA_labels[i],
+                    start_layer=0,
+                    steps=10,
+                )
+                main_blk_attrs_input = main_blk_attrs_input.squeeze(0)
+                SA_blk_attrs_input = SA_blk_attrs_input.squeeze(0)
             else:
                 cam, main_blk_attrs_input = main_explainer.generate_LRP(
                     input=main_inputs[i].unsqueeze(0),
@@ -90,6 +107,7 @@ def XTranPrune(
                     index=SA_labels[i],
                     method=config["prune"]["cont_method"],
                 )
+
 
             main_blk_attrs_batch = main_blk_attrs_batch + main_blk_attrs_input.detach()
             SA_blk_attrs_batch = SA_blk_attrs_batch + SA_blk_attrs_input.detach()
@@ -194,6 +212,9 @@ def XTranPrune(
         SA_blk_attrs_iter_final = SA_blk_attrs_MA * (
             SA_blk_Uncer_MA_max_values - SA_blk_Uncer_MA
         )
+    else:
+        main_blk_attrs_iter_final = main_blk_attrs_iter
+        SA_blk_attrs_iter_final = SA_blk_attrs_iter
 
     ###############################  Generating the pruning mask ###############################
 
@@ -251,7 +272,14 @@ def XTranPrune(
 
     prun_mask = torch.stack(prun_mask, dim=0)
 
-    prev_mask = main_model.get_attn_mask()
+    # NEEDS FIXING: generalize it LATER
+    if prun_mask.shape[0] < main_model.depth:
+        ones_tensor = torch.ones((main_model.depth - prun_mask.shape[0],) + prun_mask.shape[1:], dtype=prun_mask.dtype, device=prun_mask.device)
+            
+        # Concatenate the original tensor with the ones tensor along the first dimension
+        prun_mask = torch.cat([prun_mask, ones_tensor], dim=0)
+
+    prev_mask = main_model.get_attn_pruning_mask()
 
     if verbose > 0 and prev_mask is not None:
         new_mask = prev_mask * prun_mask
@@ -270,8 +298,7 @@ def XTranPrune(
         print(
             f"New #pruned_parameters - Previous #pruned_parameters = {num_pruned_new} - {num_pruned_prev} = {num_pruned_new - num_pruned_prev} "
         )
-
-    main_model.set_attn_mask(prun_mask)
+    main_model.set_attn_pruning_mask(prun_mask)
 
     return main_model, MA_vectors
 
