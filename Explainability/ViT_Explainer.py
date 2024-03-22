@@ -332,190 +332,190 @@ class Explainer:
 
         return R[:, 0, 1:], None
 
-    def generate_ig(
-        self, input, index=None, steps=20, start_layer=6, samples=20, noise=0.2
-    ):
-        b = input.shape[0]
-        output = self.model(input, register_hook=True)
-        if index == None:
-            index = np.argmax(output.cpu().data.numpy(), axis=-1)
+    # def generate_ig(
+    #     self, input, index=None, steps=20, start_layer=6, samples=20, noise=0.2
+    # ):
+    #     b = input.shape[0]
+    #     output = self.model(input, register_hook=True)
+    #     if index == None:
+    #         index = np.argmax(output.cpu().data.numpy(), axis=-1)
 
-        one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
-        one_hot[np.arange(b), index] = 1
-        one_hot_vector = one_hot
-        one_hot = torch.from_numpy(one_hot).requires_grad_(True)
-        one_hot = torch.sum(one_hot.cuda() * output)
+    #     one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+    #     one_hot[np.arange(b), index] = 1
+    #     one_hot_vector = one_hot
+    #     one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+    #     one_hot = torch.sum(one_hot.cuda() * output)
 
-        self.model.zero_grad()
-        one_hot.backward(retain_graph=True)
+    #     self.model.zero_grad()
+    #     one_hot.backward(retain_graph=True)
 
-        _, num_head, num_tokens, _ = (
-            self.model.blocks[-1].attn.get_attention_map().shape
-        )
+    #     _, num_head, num_tokens, _ = (
+    #         self.model.blocks[-1].attn.get_attention_map().shape
+    #     )
 
-        total_gradients = torch.zeros([b, 1, 224, 224]).cuda()
-        for alpha in np.linspace(0, 1, steps):
-            # forward propagation
-            data_scaled = input * alpha
+    #     total_gradients = torch.zeros([b, 1, 224, 224]).cuda()
+    #     for alpha in np.linspace(0, 1, steps):
+    #         # forward propagation
+    #         data_scaled = input * alpha
 
-            # backward propagation
-            output = self.model(data_scaled, register_hook=True)
-            one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
-            one_hot[np.arange(b), index] = 1
-            one_hot_vector = one_hot
-            one_hot = torch.from_numpy(one_hot).requires_grad_(True)
-            one_hot = torch.sum(one_hot.cuda() * output)
+    #         # backward propagation
+    #         output = self.model(data_scaled, register_hook=True)
+    #         one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+    #         one_hot[np.arange(b), index] = 1
+    #         one_hot_vector = one_hot
+    #         one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+    #         one_hot = torch.sum(one_hot.cuda() * output)
 
-            self.model.zero_grad()
-            one_hot.backward(retain_graph=True)
+    #         self.model.zero_grad()
+    #         one_hot.backward(retain_graph=True)
 
-            # cal grad
-            gradients = self.model.get_input_gradients().sum(1).unsqueeze(1)
-            total_gradients += gradients
+    #         # cal grad
+    #         gradients = self.model.get_input_gradients().sum(1).unsqueeze(1)
+    #         total_gradients += gradients
 
-        W_state = total_gradients / steps
+    #     W_state = total_gradients / steps
 
-        return W_state
+    #     return W_state
 
-    def generate_sg(
-        self, input, index=None, steps=20, start_layer=6, samples=20, noise=0.2
-    ):
-        b = input.shape[0]
-        output = self.model(input, register_hook=True)
-        if index == None:
-            index = np.argmax(output.cpu().data.numpy(), axis=-1)
+    # def generate_sg(
+    #     self, input, index=None, steps=20, start_layer=6, samples=20, noise=0.2
+    # ):
+    #     b = input.shape[0]
+    #     output = self.model(input, register_hook=True)
+    #     if index == None:
+    #         index = np.argmax(output.cpu().data.numpy(), axis=-1)
 
-        one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
-        one_hot[np.arange(b), index] = 1
-        one_hot_vector = one_hot
-        one_hot = torch.from_numpy(one_hot).requires_grad_(True)
-        one_hot = torch.sum(one_hot.cuda() * output)
+    #     one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+    #     one_hot[np.arange(b), index] = 1
+    #     one_hot_vector = one_hot
+    #     one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+    #     one_hot = torch.sum(one_hot.cuda() * output)
 
-        self.model.zero_grad()
-        one_hot.backward(retain_graph=True)
+    #     self.model.zero_grad()
+    #     one_hot.backward(retain_graph=True)
 
-        _, num_head, num_tokens, _ = (
-            self.model.blocks[-1].attn.get_attention_map().shape
-        )
+    #     _, num_head, num_tokens, _ = (
+    #         self.model.blocks[-1].attn.get_attention_map().shape
+    #     )
 
-        total_gradients = torch.zeros([b, 1, 224, 224]).cuda()
+    #     total_gradients = torch.zeros([b, 1, 224, 224]).cuda()
 
-        for alpha in np.linspace(0, 1, steps):
-            dev = noise * (torch.max(input) - torch.min(input))
-            noise = torch.normal(
-                0.0, 0.3859, [1, 3, 224, 224], dtype=torch.float32
-            ).cuda()
-            data_perturbed = input + noise
+    #     for alpha in np.linspace(0, 1, steps):
+    #         dev = noise * (torch.max(input) - torch.min(input))
+    #         noise = torch.normal(
+    #             0.0, 0.3859, [1, 3, 224, 224], dtype=torch.float32
+    #         ).cuda()
+    #         data_perturbed = input + noise
 
-            # backward propagation
-            output = self.model(data_perturbed, register_hook=True)
-            one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
-            one_hot[np.arange(b), index] = 1
-            one_hot_vector = one_hot
-            one_hot = torch.from_numpy(one_hot).requires_grad_(True)
-            one_hot = torch.sum(one_hot.cuda() * output)
+    #         # backward propagation
+    #         output = self.model(data_perturbed, register_hook=True)
+    #         one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+    #         one_hot[np.arange(b), index] = 1
+    #         one_hot_vector = one_hot
+    #         one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+    #         one_hot = torch.sum(one_hot.cuda() * output)
 
-            self.model.zero_grad()
-            one_hot.backward(retain_graph=True)
+    #         self.model.zero_grad()
+    #         one_hot.backward(retain_graph=True)
 
-            # cal grad
-            gradients = self.model.get_input_gradients().sum(1).unsqueeze(1)
-            total_gradients += gradients
+    #         # cal grad
+    #         gradients = self.model.get_input_gradients().sum(1).unsqueeze(1)
+    #         total_gradients += gradients
 
-        W_state = total_gradients / steps
+    #     W_state = total_gradients / steps
 
-        return W_state
+    #     return W_state
 
-    def generate_ours_c(
-        self,
-        input,
-        index=None,
-        steps=20,
-        start_layer=6,
-        samples=20,
-        noise=0.2,
-        mae=False,
-        ssl=False,
-        dino=False,
-    ):
-        b = input.shape[0]
-        output = self.model(input, register_hook=True)
-        if index == None:
-            index = np.argmax(output.cpu().data.numpy(), axis=-1)
+    # def generate_ours_c(
+    #     self,
+    #     input,
+    #     index=None,
+    #     steps=20,
+    #     start_layer=6,
+    #     samples=20,
+    #     noise=0.2,
+    #     mae=False,
+    #     ssl=False,
+    #     dino=False,
+    # ):
+    #     b = input.shape[0]
+    #     output = self.model(input, register_hook=True)
+    #     if index == None:
+    #         index = np.argmax(output.cpu().data.numpy(), axis=-1)
 
-        one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
-        one_hot[np.arange(b), index] = 1
-        one_hot_vector = one_hot
-        one_hot = torch.from_numpy(one_hot).requires_grad_(True)
-        one_hot = torch.sum(one_hot.cuda() * output)
+    #     one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+    #     one_hot[np.arange(b), index] = 1
+    #     one_hot_vector = one_hot
+    #     one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+    #     one_hot = torch.sum(one_hot.cuda() * output)
 
-        self.model.zero_grad()
-        one_hot.backward(retain_graph=True)
+    #     self.model.zero_grad()
+    #     one_hot.backward(retain_graph=True)
 
-        _, num_head, num_tokens, _ = (
-            self.model.blocks[-1].attn.get_attention_map().shape
-        )
+    #     _, num_head, num_tokens, _ = (
+    #         self.model.blocks[-1].attn.get_attention_map().shape
+    #     )
 
-        R = torch.eye(num_tokens, num_tokens).expand(b, num_tokens, num_tokens).cuda()
-        for nb, blk in enumerate(self.model.blocks):
-            if nb < start_layer - 1:
-                continue
-            z = blk.get_input()
-            vproj = blk.attn.get_vproj()
+    #     R = torch.eye(num_tokens, num_tokens).expand(b, num_tokens, num_tokens).cuda()
+    #     for nb, blk in enumerate(self.model.blocks):
+    #         if nb < start_layer - 1:
+    #             continue
+    #         z = blk.get_input()
+    #         vproj = blk.attn.get_vproj()
 
-            order = (
-                torch.linalg.norm(vproj, dim=-1).squeeze()
-                / torch.linalg.norm(z, dim=-1).squeeze()
-            )
-            m = torch.diag_embed(order)
-            cam = blk.attn.get_attention_map()
-            cam = cam.reshape(-1, cam.shape[-2], cam.shape[-1]).mean(0)
+    #         order = (
+    #             torch.linalg.norm(vproj, dim=-1).squeeze()
+    #             / torch.linalg.norm(z, dim=-1).squeeze()
+    #         )
+    #         m = torch.diag_embed(order)
+    #         cam = blk.attn.get_attention_map()
+    #         cam = cam.reshape(-1, cam.shape[-2], cam.shape[-1]).mean(0)
 
-            R = R + torch.matmul(torch.matmul(cam.cuda(), m.cuda()), R.cuda())
+    #         R = R + torch.matmul(torch.matmul(cam.cuda(), m.cuda()), R.cuda())
 
-        if ssl:
-            if mae:
-                return R[:, 1:, 1:].abs().mean(axis=1)
-            elif dino:
-                return R[:, 1:, 1:].abs().mean(axis=1) + R[:, 0, 1:].abs()
-            else:
-                return R[:, 0, 1:].abs()
+    #     if ssl:
+    #         if mae:
+    #             return R[:, 1:, 1:].abs().mean(axis=1)
+    #         elif dino:
+    #             return R[:, 1:, 1:].abs().mean(axis=1) + R[:, 0, 1:].abs()
+    #         else:
+    #             return R[:, 0, 1:].abs()
 
-        total_gradients = torch.zeros(b, num_head, num_tokens, num_tokens).cuda()
-        for alpha in np.linspace(0, 1, steps):
-            # forward propagation
-            data_scaled = input * alpha
+    #     total_gradients = torch.zeros(b, num_head, num_tokens, num_tokens).cuda()
+    #     for alpha in np.linspace(0, 1, steps):
+    #         # forward propagation
+    #         data_scaled = input * alpha
 
-            # backward propagation
-            output = self.model(data_scaled, register_hook=True)
-            one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
-            one_hot[np.arange(b), index] = 1
-            one_hot_vector = one_hot
-            one_hot = torch.from_numpy(one_hot).requires_grad_(True)
-            one_hot = torch.sum(one_hot.cuda() * output)
+    #         # backward propagation
+    #         output = self.model(data_scaled, register_hook=True)
+    #         one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+    #         one_hot[np.arange(b), index] = 1
+    #         one_hot_vector = one_hot
+    #         one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+    #         one_hot = torch.sum(one_hot.cuda() * output)
 
-            self.model.zero_grad()
-            one_hot.backward(retain_graph=True)
+    #         self.model.zero_grad()
+    #         one_hot.backward(retain_graph=True)
 
-            # cal grad
-            gradients = self.model.blocks[-1].attn.get_attn_gradients()
-            total_gradients += gradients
+    #         # cal grad
+    #         gradients = self.model.blocks[-1].attn.get_attn_gradients()
+    #         total_gradients += gradients
 
-        W_state = (
-            (total_gradients / steps)
-            .clamp(min=0)
-            .mean(1)
-            .reshape(b, num_tokens, num_tokens)
-        )
+    #     W_state = (
+    #         (total_gradients / steps)
+    #         .clamp(min=0)
+    #         .mean(1)
+    #         .reshape(b, num_tokens, num_tokens)
+    #     )
 
-        R = W_state * R.abs()
+    #     R = W_state * R.abs()
 
-        if mae:
-            return R[:, 1:, 1:].mean(axis=1)
-        elif dino:
-            return R[:, 1:, 1:].mean(axis=1) + R[:, 0, 1:]
-        else:
-            return R[:, 0, 1:]
+    #     if mae:
+    #         return R[:, 1:, 1:].mean(axis=1)
+    #     elif dino:
+    #         return R[:, 1:, 1:].mean(axis=1) + R[:, 0, 1:]
+    #     else:
+    #         return R[:, 0, 1:]
 
     # def generate_cam_attn(self, input, index=None, mae=False):
     #     output = self.model(input.cuda(), register_hook=True)
