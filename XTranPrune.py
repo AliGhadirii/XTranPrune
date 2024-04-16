@@ -366,6 +366,7 @@ def main(config, args):
     main_model = deit_small_patch16_224(
         num_classes=main_num_classes,
         add_hook=True,
+        need_ig=True if config["prune"]["cont_method"] == "AttrRoll" else False,
         weight_path=config["prune"]["main_br_path"],
     )
     main_model = main_model.eval().to(device)
@@ -373,6 +374,7 @@ def main(config, args):
     SA_model = deit_small_patch16_224(
         num_classes=SA_num_classes,
         add_hook=True,
+        need_ig=True if config["prune"]["cont_method"] == "AttrRoll" else False,
         weight_path=config["prune"]["SA_br_path"],
     )
     SA_model = SA_model.eval().to(device)
