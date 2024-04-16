@@ -71,24 +71,24 @@ def XTranPrune(
                     input=SA_inputs[i].unsqueeze(0)
                 )
             elif config["prune"]["cont_method"] == "TranInter":
-                cam, main_blk_attrs_input = main_explainer.generate_TranInter(
+                _, main_blk_attrs_input = main_explainer.generate_TranInter(
                     input=main_inputs[i].unsqueeze(0),
                     index=main_labels[i],
                 )
-                cam, SA_blk_attrs_input = SA_explainer.generate_TranInter(
+                _, SA_blk_attrs_input = SA_explainer.generate_TranInter(
                     input=SA_inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                 )
 
             elif config["prune"]["cont_method"] == "TAM":
                 
-                cam, main_blk_attrs_input = main_explainer.generate_TAM(
+                _, main_blk_attrs_input = main_explainer.generate_TAM(
                     input=main_inputs[i].unsqueeze(0),
                     index=main_labels[i],
                     start_layer=0,
                     steps=10,
                 )
-                cam, SA_blk_attrs_input = SA_explainer.generate_TAM(
+                _, SA_blk_attrs_input = SA_explainer.generate_TAM(
                     input=SA_inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                     start_layer=0,
@@ -96,13 +96,17 @@ def XTranPrune(
                 )
                 main_blk_attrs_input = main_blk_attrs_input.squeeze(0)
                 SA_blk_attrs_input = SA_blk_attrs_input.squeeze(0)
+            elif config["prune"]["cont_method"] == "AttrRoll":
+                    
+                _, main_blk_attrs_input = main_explainer.generate_AttrRoll(input=main_inputs[i].unsqueeze(0), index=main_labels[i])
+                _, SA_blk_attrs_input = SA_explainer.generate_AttrRoll(input=SA_inputs[i].unsqueeze(0), index=SA_labels[i])
             else:
-                cam, main_blk_attrs_input = main_explainer.generate_LRP(
+                _, main_blk_attrs_input = main_explainer.generate_LRP(
                     input=main_inputs[i].unsqueeze(0),
                     index=main_labels[i],
                     method=config["prune"]["cont_method"],
                 )
-                cam, SA_blk_attrs_input = SA_explainer.generate_LRP(
+                _, SA_blk_attrs_input = SA_explainer.generate_LRP(
                     input=SA_inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                     method=config["prune"]["cont_method"],
@@ -362,6 +366,7 @@ def main(config, args):
     main_model = deit_small_patch16_224(
         num_classes=main_num_classes,
         add_hook=True,
+        need_ig=True if config["prune"]["cont_method"] == "AttrRoll" else False,
         weight_path=config["prune"]["main_br_path"],
     )
     main_model = main_model.eval().to(device)
@@ -369,6 +374,7 @@ def main(config, args):
     SA_model = deit_small_patch16_224(
         num_classes=SA_num_classes,
         add_hook=True,
+        need_ig=True if config["prune"]["cont_method"] == "AttrRoll" else False,
         weight_path=config["prune"]["SA_br_path"],
     )
     SA_model = SA_model.eval().to(device)

@@ -257,12 +257,18 @@ class Block(nn.Module):
         self.add2 = Add()
         self.clone1 = Clone()
         self.clone2 = Clone()
+    def save_all(self,all):
+        self.all = all
+    
+    def get_all(self):
+        return self.all
 
     def forward(self, x):
         x1, x2 = self.clone1(x, 2)
         x = self.add1([x1, self.attn(self.norm1(x2))])
         x1, x2 = self.clone2(x, 2)
         x = self.add2([x1, self.mlp(self.norm2(x2))])
+        self.save_all(x)
         return x
 
     def relprop(self, cam, **kwargs):
@@ -332,11 +338,13 @@ class VisionTransformer(nn.Module):
         drop_rate=0.0,
         attn_drop_rate=0.0,
         add_hook=False,
+        need_ig=False,
     ):
         super().__init__()
         self.num_classes = num_classes
         self.depth = depth
         self.add_hook = add_hook
+        self.need_ig = need_ig
         self.num_features = self.embed_dim = (
             embed_dim  # num_features for consistency with other models
         )
@@ -383,9 +391,8 @@ class VisionTransformer(nn.Module):
             else:
                 self.head = Linear(embed_dim, num_classes)
 
-        # FIXME not quite sure what the proper weight init is supposed to be,
-        # normal / trunc normal w/ std == .02 similar to other Bert like transformers
-        trunc_normal_(self.pos_embed, std=0.02)  # embeddings same as weights?
+        
+        trunc_normal_(self.pos_embed, std=0.02)
         trunc_normal_(self.cls_token, std=0.02)
         self.apply(self._init_weights)
 
@@ -393,6 +400,8 @@ class VisionTransformer(nn.Module):
         self.add = Add()
 
         self.inp_grad = None
+        self.ig = None
+        self.gradients = None
 
     def save_inp_grad(self, grad):
         self.inp_grad = grad
@@ -438,21 +447,44 @@ class VisionTransformer(nn.Module):
                 param.grad.detach_()
                 param.grad = None
 
+    def save_ig(self,ig):
+        self.ig = ig
+
+    def get_ig(self):
+        return self.ig
+    
+    def save_gradients(self,gradients):
+        self.gradients = gradients
+
+    def get_gradients(self):
+        return self.gradients
+        
     def forward(self, x):
         B = x.shape[0]
         x = self.patch_embed(x)
 
-        cls_tokens = self.cls_token.expand(
-            B, -1, -1
-        )  # stole cls_tokens impl from Phil Wang, thanks
+        cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
         x = self.add([x, self.pos_embed])
 
         if x.requires_grad and self.add_hook:
             x.register_hook(self.save_inp_grad)
+        
+        if self.need_ig:
+            ig = []
 
-        for blk in self.blocks:
-            x = blk(x)
+            for blk in self.blocks:
+                x = blk(x)
+                y = self.norm(x)
+                y = self.pool(y, dim=1, indices=torch.tensor(0, device=y.device))
+                y = y.squeeze(1)
+                y = self.head(y)
+                ig.append(y)
+
+            self.save_ig(ig)
+        else:
+            for blk in self.blocks:
+                x = blk(x)
 
         x = self.norm(x)
         x = self.pool(x, dim=1, indices=torch.tensor(0, device=x.device))
@@ -577,64 +609,64 @@ def _conv_filter(state_dict, patch_size=16):
     return out_dict
 
 
-def vit_base_patch16_224(pretrained=False, **kwargs):
-    model = VisionTransformer(
-        patch_size=16,
-        embed_dim=768,
-        depth=12,
-        num_heads=12,
-        mlp_ratio=4,
-        qkv_bias=True,
-        **kwargs,
-    )
-    model.default_cfg = default_cfgs["vit_base_patch16_224"]
-    if pretrained:
-        load_pretrained(
-            model,
-            num_classes=model.num_classes,
-            in_chans=kwargs.get("in_chans", 3),
-            filter_fn=_conv_filter,
-        )
-    return model
+# def vit_base_patch16_224(pretrained=False, **kwargs):
+#     model = VisionTransformer(
+#         patch_size=16,
+#         embed_dim=768,
+#         depth=12,
+#         num_heads=12,
+#         mlp_ratio=4,
+#         qkv_bias=True,
+#         **kwargs,
+#     )
+#     model.default_cfg = default_cfgs["vit_base_patch16_224"]
+#     if pretrained:
+#         load_pretrained(
+#             model,
+#             num_classes=model.num_classes,
+#             in_chans=kwargs.get("in_chans", 3),
+#             filter_fn=_conv_filter,
+#         )
+#     return model
 
 
-def vit_large_patch16_224(pretrained=False, **kwargs):
-    model = VisionTransformer(
-        patch_size=16,
-        embed_dim=1024,
-        depth=24,
-        num_heads=16,
-        mlp_ratio=4,
-        qkv_bias=True,
-        **kwargs,
-    )
-    model.default_cfg = default_cfgs["vit_large_patch16_224"]
-    if pretrained:
-        load_pretrained(
-            model, num_classes=model.num_classes, in_chans=kwargs.get("in_chans", 3)
-        )
-    return model
+# def vit_large_patch16_224(pretrained=False, **kwargs):
+#     model = VisionTransformer(
+#         patch_size=16,
+#         embed_dim=1024,
+#         depth=24,
+#         num_heads=16,
+#         mlp_ratio=4,
+#         qkv_bias=True,
+#         **kwargs,
+#     )
+#     model.default_cfg = default_cfgs["vit_large_patch16_224"]
+#     if pretrained:
+#         load_pretrained(
+#             model, num_classes=model.num_classes, in_chans=kwargs.get("in_chans", 3)
+#         )
+#     return model
 
 
-def deit_base_patch16_224(pretrained=False, **kwargs):
-    model = VisionTransformer(
-        patch_size=16,
-        embed_dim=768,
-        depth=12,
-        num_heads=12,
-        mlp_ratio=4,
-        qkv_bias=True,
-        **kwargs,
-    )
-    model.default_cfg = _cfg()
-    if pretrained:
-        checkpoint = torch.hub.load_state_dict_from_url(
-            url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
-            map_location="cpu",
-            check_hash=True,
-        )
-        model.load_state_dict(checkpoint["model"])
-    return model
+# def deit_base_patch16_224(pretrained=False, **kwargs):
+#     model = VisionTransformer(
+#         patch_size=16,
+#         embed_dim=768,
+#         depth=12,
+#         num_heads=12,
+#         mlp_ratio=4,
+#         qkv_bias=True,
+#         **kwargs,
+#     )
+#     model.default_cfg = _cfg()
+#     if pretrained:
+#         checkpoint = torch.hub.load_state_dict_from_url(
+#             url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
+#             map_location="cpu",
+#             check_hash=True,
+#         )
+#         model.load_state_dict(checkpoint["model"])
+#     return model
 
 
 def deit_small_patch16_224(
@@ -643,6 +675,7 @@ def deit_small_patch16_224(
     weight_path=None,
     num_classes=3,
     add_hook=False,
+    need_ig=False,
     **kwargs,
 ):
     model = VisionTransformer(
@@ -654,6 +687,7 @@ def deit_small_patch16_224(
         num_classes=num_classes,
         qkv_bias=True,
         add_hook=add_hook,
+        need_ig=need_ig
         **kwargs,
     )
     model.default_cfg = _cfg()
