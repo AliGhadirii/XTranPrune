@@ -257,12 +257,18 @@ class Block(nn.Module):
         self.add2 = Add()
         self.clone1 = Clone()
         self.clone2 = Clone()
+    def save_all(self,all):
+        self.all = all
+    
+    def get_all(self):
+        return self.all
 
     def forward(self, x):
         x1, x2 = self.clone1(x, 2)
         x = self.add1([x1, self.attn(self.norm1(x2))])
         x1, x2 = self.clone2(x, 2)
         x = self.add2([x1, self.mlp(self.norm2(x2))])
+        self.save_all(x)
         return x
 
     def relprop(self, cam, **kwargs):
@@ -383,9 +389,8 @@ class VisionTransformer(nn.Module):
             else:
                 self.head = Linear(embed_dim, num_classes)
 
-        # FIXME not quite sure what the proper weight init is supposed to be,
-        # normal / trunc normal w/ std == .02 similar to other Bert like transformers
-        trunc_normal_(self.pos_embed, std=0.02)  # embeddings same as weights?
+        
+        trunc_normal_(self.pos_embed, std=0.02)
         trunc_normal_(self.cls_token, std=0.02)
         self.apply(self._init_weights)
 
@@ -393,6 +398,8 @@ class VisionTransformer(nn.Module):
         self.add = Add()
 
         self.inp_grad = None
+        self.ig = None
+        self.gradients = None
 
     def save_inp_grad(self, grad):
         self.inp_grad = grad
@@ -438,6 +445,18 @@ class VisionTransformer(nn.Module):
                 param.grad.detach_()
                 param.grad = None
 
+    def save_ig(self,ig):
+        self.ig = ig
+
+    def get_ig(self):
+        return self.ig
+    
+    def save_gradients(self,gradients):
+        self.gradients = gradients
+
+    def get_gradients(self):
+        return self.gradients
+        
     def forward(self, x):
         B = x.shape[0]
         x = self.patch_embed(x)
@@ -450,9 +469,18 @@ class VisionTransformer(nn.Module):
 
         if x.requires_grad and self.add_hook:
             x.register_hook(self.save_inp_grad)
+        
+        ig = []
 
         for blk in self.blocks:
             x = blk(x)
+            y = self.norm(x)
+            y = self.pool(y, dim=1, indices=torch.tensor(0, device=y.device))
+            y = y.squeeze(1)
+            y = self.head(y)
+            ig.append(y)
+
+        self.save_ig(ig)
 
         x = self.norm(x)
         x = self.pool(x, dim=1, indices=torch.tensor(0, device=x.device))

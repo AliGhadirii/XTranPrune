@@ -332,6 +332,49 @@ class Explainer:
 
         return R[:, 0, 1:], None
 
+    def generate_AttrRoll(self, input, index=None):
+        output = self.model(input)
+        blocks = self.model.blocks
+        all_layer_attentions = []
+        blk_attrs = []
+        if index == None:
+            index = np.argmax(output.cpu().data.numpy(), axis=-1)
+        heads = self.model.num_heads
+        m = 20
+        steps = 20
+        scale = 1.0 / m
+        prob = self.model.get_ig()
+        k=0
+        discard_ratio = 0.9
+        for blk in blocks:
+            attn_heads = blk.attn.get_attn_map()
+            F = prob[k]
+            k = k + 1
+            all_ig = []
+            for i in range(heads):
+                attn = attn_heads[0][i]
+                if self.model.num_classes == 2:
+                    gradient = torch.autograd.grad(torch.unbind(F[:, 0]), attn_heads, retain_graph=True)
+                else:
+                    gradient = torch.autograd.grad(torch.unbind(F[:, index]), attn_heads, retain_graph=True)
+                
+                gradient = gradient[0][0][i]
+                baseline = torch.zeros_like(gradient)
+                for alpha in np.linspace(0,1,steps):
+                    gradient_a = gradient * alpha
+                    baseline += gradient_a
+                attn = attn * baseline * scale
+                all_ig.append(attn)
+            a_ig = torch.stack(all_ig,dim=0)
+            blk_attrs.append(a_ig)
+            a_ig = a_ig.unsqueeze(dim=0)
+            ig = torch.max(a_ig,dim=1)[0]
+            all_layer_attentions.append(ig)
+        rollout = compute_rollout_attention(all_layer_attentions)
+        rollout = rollout[:, 0, 1:]
+        blk_attrs = torch.stack(blk_attrs)
+        return rollout, blk_attrs
+    
     # def generate_ig(
     #     self, input, index=None, steps=20, start_layer=6, samples=20, noise=0.2
     # ):
