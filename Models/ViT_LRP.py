@@ -482,6 +482,9 @@ class VisionTransformer(nn.Module):
                 ig.append(y)
 
             self.save_ig(ig)
+        else:
+            for blk in self.blocks:
+                x = blk(x)
 
         x = self.norm(x)
         x = self.pool(x, dim=1, indices=torch.tensor(0, device=x.device))
