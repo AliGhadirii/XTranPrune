@@ -687,7 +687,7 @@ def deit_small_patch16_224(
         num_classes=num_classes,
         qkv_bias=True,
         add_hook=add_hook,
-        need_ig=need_ig
+        need_ig=need_ig,
         **kwargs,
     )
     model.default_cfg = _cfg()

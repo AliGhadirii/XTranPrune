@@ -375,6 +375,73 @@ class Explainer:
         blk_attrs = torch.stack(blk_attrs)
         return rollout, blk_attrs
     
+    def generate_FTeylor(self, input, index=None):
+        
+        b = input.shape[0]
+        output = self.model(input)
+        if index == None:
+            index = np.argmax(output.cpu().data.numpy(), axis=-1)
+
+        if self.model.num_classes == 2:
+            # In binary classification, the output is a single scalar and we initialize the target vector with the output logit of the network.
+            one_hot = np.zeros((b, 1), dtype=np.float32)
+            one_hot[np.arange(b), 0] = output.cpu().data.numpy()
+        else:
+            one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+            one_hot[np.arange(b), index] = 1
+
+        one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+        one_hot = torch.sum(one_hot.cuda() * output)
+        
+        self.model.zero_grad()
+        one_hot.backward(retain_graph=True)
+
+        blk_attns = []
+        for blk in self.model.blocks:
+            attn = blk.attn.get_attn_map()
+            grad = blk.attn.get_attn_gradients()
+            attn = attn[0].reshape(-1, attn.shape[-1], attn.shape[-1])
+            grad = grad[0].reshape(-1, grad.shape[-1], grad.shape[-1])
+            attn = (attn * grad).abs().clamp(min=0)
+            blk_attns.append(attn)
+        blk_attns = torch.stack(blk_attns)
+
+        return blk_attns
+    
+    def generate_FTeylorpow2(self, input, index=None):
+        
+        b = input.shape[0]
+        output = self.model(input)
+        if index == None:
+            index = np.argmax(output.cpu().data.numpy(), axis=-1)
+
+        if self.model.num_classes == 2:
+            # In binary classification, the output is a single scalar and we initialize the target vector with the output logit of the network.
+            one_hot = np.zeros((b, 1), dtype=np.float32)
+            one_hot[np.arange(b), 0] = output.cpu().data.numpy()
+        else:
+            one_hot = np.zeros((b, output.size()[-1]), dtype=np.float32)
+            one_hot[np.arange(b), index] = 1
+
+        one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+        one_hot = torch.sum(one_hot.cuda() * output)
+        
+        self.model.zero_grad()
+        one_hot.backward(retain_graph=True)
+
+        blk_attns = []
+        for blk in self.model.blocks:
+            attn = blk.attn.get_attn_map()
+            grad = blk.attn.get_attn_gradients()
+            attn = attn[0].reshape(-1, attn.shape[-1], attn.shape[-1])
+            grad = grad[0].reshape(-1, grad.shape[-1], grad.shape[-1])
+            attn = (attn.abs() * grad.abs())**2
+            attn = attn.clamp(min=0)
+            blk_attns.append(attn)
+        blk_attns = torch.stack(blk_attns)
+
+        return blk_attns
+    
     # def generate_ig(
     #     self, input, index=None, steps=20, start_layer=6, samples=20, noise=0.2
     # ):
