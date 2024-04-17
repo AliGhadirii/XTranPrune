@@ -375,7 +375,7 @@ class Explainer:
         blk_attrs = torch.stack(blk_attrs)
         return rollout, blk_attrs
     
-    def generate_FTeylor(self, input, index=None):
+    def generate_FTaylor(self, input, index=None):
         
         b = input.shape[0]
         output = self.model(input)
@@ -408,7 +408,7 @@ class Explainer:
 
         return blk_attns
     
-    def generate_FTeylorpow2(self, input, index=None):
+    def generate_FTaylorpow2(self, input, index=None):
         
         b = input.shape[0]
         output = self.model(input)
