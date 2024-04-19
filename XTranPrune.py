@@ -100,6 +100,24 @@ def XTranPrune(
                     
                 _, main_blk_attrs_input = main_explainer.generate_AttrRoll(input=main_inputs[i].unsqueeze(0), index=main_labels[i])
                 _, SA_blk_attrs_input = SA_explainer.generate_AttrRoll(input=SA_inputs[i].unsqueeze(0), index=SA_labels[i])
+            elif config["prune"]["cont_method"] == "FTaylor":
+                main_blk_attrs_input = main_explainer.generate_FTaylor(
+                    input=main_inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                )
+                SA_blk_attrs_input = SA_explainer.generate_FTaylor(
+                    input=SA_inputs[i].unsqueeze(0),
+                    index=SA_labels[i],
+                )
+            elif config["prune"]["cont_method"] == "FTaylorpow2":
+                main_blk_attrs_input = main_explainer.generate_FTaylorpow2(
+                    input=main_inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                )
+                SA_blk_attrs_input = SA_explainer.generate_FTaylorpow2(
+                    input=SA_inputs[i].unsqueeze(0),
+                    index=SA_labels[i],
+                )
             else:
                 _, main_blk_attrs_input = main_explainer.generate_LRP(
                     input=main_inputs[i].unsqueeze(0),

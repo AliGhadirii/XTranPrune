@@ -2,7 +2,7 @@ seed: 42
 root_image_dir: /home/ali/Datasets/Fitz17k/Images/
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
 dataset_name: Fitz17k
-output_folder_path: /home/ali/Outputs/Fitzpatrick17k/Pruning/AttrRoll_Method/
+output_folder_path: /home/ali/Outputs/Fitzpatrick17k/Pruning/FTeylorpow2_Method/
 num_workers: 1
 default:
   batch_size: 64
@@ -24,6 +24,6 @@ prune:
   pruning_rate: 0.4
   beta1: 0.4
   beta2: 0.4
-  cont_method: AttrRoll                # ["transformer_attribution", "attr", "grad", "attn", "TAM", AttrRoll"]
+  cont_method: FTeylorpow2                # ["transformer_attribution", "attr", "grad", "attn", "TAM", AttrRoll", "FTaylor", "FTaylorpow2"]
   method: MA_Uncertainty                              # ['normal', 'MA', 'MA_Uncertainty']
   verbose: 2                                          # [0, 1, 2] (more details as the number grows)
