@@ -25,6 +25,6 @@ prune:
   beta1: 0.4
   beta2: 0.4
   cont_method: transformer_attribution                # ["transformer_attribution", "attr", "grad", "attn", "TAM", AttrRoll", "FTaylor", "FTaylorpow2"]
-  method: MA                              # ['normal', 'MA', 'MA_Uncertainty']
+  method: MA_Uncertainty                              # ['normal', 'MA', 'MA_Uncertainty']
   option: 2                                           # [1, 2]
   verbose: 2                                          # [0, 1, 2] (more details as the number grows)
