@@ -17,7 +17,7 @@ from Explainability.ViT_Explainer import Explainer
 from Evaluation import eval_model
 
 
-def Method2(
+def Contrastive(
     model,
     dataloaders,
     S0_dataloaders,
@@ -212,10 +212,15 @@ def Method2(
         ),
     )
 
+    if config["prune"]["FObjective"] == "MinMMD":
+        pass
+    elif config["prune"]["FObjective"] == "MinDiff":
+        disc_blk_attrs_iter = S0_blk_attrs_iter - S1_blk_attrs_iter
+    else:
+        raise ValueError("Invalid FObjective")
+
     # getting the moving average of attribution vectors and measuing the uncertainty
     if config["prune"]["method"] == "MA":
-
-        disc_blk_attrs_iter = S0_blk_attrs_iter - S1_blk_attrs_iter
 
         blk_attrs_MA = MA_vectors[0]
         disc_blk_attrs_MA = MA_vectors[1]
@@ -238,8 +243,6 @@ def Method2(
         disc_blk_attrs_iter_final = disc_blk_attrs_MA
 
     elif config["prune"]["method"] == "MA_Uncertainty":
-
-        disc_blk_attrs_iter = S0_blk_attrs_iter - S1_blk_attrs_iter
 
         blk_attrs_MA = MA_vectors[0]
         disc_blk_attrs_MA = MA_vectors[1]
@@ -288,7 +291,7 @@ def Method2(
         )
     else:
         blk_attrs_iter_final = blk_attrs_iter
-        disc_blk_attrs_iter_final = S0_blk_attrs_iter - S1_blk_attrs_iter
+        disc_blk_attrs_iter_final = disc_blk_attrs_iter
 
     ###############################  Generating the pruning mask ###############################
 
@@ -297,42 +300,29 @@ def Method2(
         prun_mask_blk = []
         for h in range(blk_attrs_iter_final.shape[1]):
 
-            if config["prune"]["option"] == 1:
-                # Option 1: |S0 - S1| / D
-                score = disc_blk_attrs_iter_final[blk_idx][
-                    h
-                ].abs() / blk_attrs_iter_final[blk_idx][h].clamp(min=1e-40)
-                score_flt = score.flatten()
+            blk_attrs_flt = blk_attrs_iter_final[blk_idx][h].flatten()
 
-                # Pruning Pruning_rate% of the paramters
-                k = int(config["prune"]["pruning_rate"] * score_flt.shape[0])
-            else:
-                # Option 2: filter based on D then prune based on |S0 - S1|
-                blk_attrs_flt = blk_attrs_iter_final[blk_idx][h].flatten()
+            # (this param)% of the most important main params will be retained
+            threshold = torch.quantile(
+                blk_attrs_flt, 1 - config["prune"]["main_mask_retain_rate"]
+            )
 
-                # (this param)% of the most important main params will be retained
-                threshold = torch.quantile(
-                    blk_attrs_flt, 1 - config["prune"]["main_mask_retain_rate"]
-                )
+            performance_mask = (blk_attrs_iter_final[blk_idx][h] < threshold).float()
+            torch.save(
+                performance_mask,
+                os.path.join(
+                    config["output_folder_path"],
+                    "Log_files",
+                    f"performance_mask_Iter={prun_iter_cnt + 1}.pth",
+                ),
+            )
 
-                performance_mask = (
-                    blk_attrs_iter_final[blk_idx][h] < threshold
-                ).float()
-                torch.save(
-                    performance_mask,
-                    os.path.join(
-                        config["output_folder_path"],
-                        "Log_files",
-                        f"performance_mask_Iter={prun_iter_cnt + 1}.pth",
-                    ),
-                )
+            # Generating the pruning mask from SA branch
+            score = disc_blk_attrs_iter_final[blk_idx][h].abs() * performance_mask
+            score_flt = score.flatten()
 
-                # Generating the pruning mask from SA branch
-                score = disc_blk_attrs_iter_final[blk_idx][h].abs() * performance_mask
-                score_flt = score.flatten()
-
-                # Pruning Pruning_rate% of the paramters
-                k = int(config["prune"]["pruning_rate"] * performance_mask.sum())
+            # Pruning Pruning_rate% of the paramters
+            k = int(config["prune"]["pruning_rate"] * performance_mask.sum())
 
             top_k_values, top_k_indices = torch.topk(score_flt, k)
             prun_mask_blk_head = torch.ones_like(score_flt)
@@ -501,7 +491,7 @@ def main(config, args):
         model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt+1}"
 
         if prun_iter_cnt == 0:
-            pruned_model, MA_vectors = Method2(
+            pruned_model, MA_vectors = Contrastive(
                 model=model,
                 dataloaders=dataloaders["train"],
                 S0_dataloaders=S0_dataloaders["train"],
@@ -513,7 +503,7 @@ def main(config, args):
                 MA_vectors=MA_vectors,
             )
         else:
-            pruned_model, MA_vectors = Method2(
+            pruned_model, MA_vectors = Contrastive(
                 model=pruned_model,
                 dataloaders=dataloaders["train"],
                 S0_dataloaders=S0_dataloaders["train"],
