@@ -257,9 +257,10 @@ class Block(nn.Module):
         self.add2 = Add()
         self.clone1 = Clone()
         self.clone2 = Clone()
-    def save_all(self,all):
+
+    def save_all(self, all):
         self.all = all
-    
+
     def get_all(self):
         return self.all
 
@@ -391,7 +392,6 @@ class VisionTransformer(nn.Module):
             else:
                 self.head = Linear(embed_dim, num_classes)
 
-        
         trunc_normal_(self.pos_embed, std=0.02)
         trunc_normal_(self.cls_token, std=0.02)
         self.apply(self._init_weights)
@@ -447,18 +447,18 @@ class VisionTransformer(nn.Module):
                 param.grad.detach_()
                 param.grad = None
 
-    def save_ig(self,ig):
+    def save_ig(self, ig):
         self.ig = ig
 
     def get_ig(self):
         return self.ig
-    
-    def save_gradients(self,gradients):
+
+    def save_gradients(self, gradients):
         self.gradients = gradients
 
     def get_gradients(self):
         return self.gradients
-        
+
     def forward(self, x):
         B = x.shape[0]
         x = self.patch_embed(x)
@@ -469,7 +469,7 @@ class VisionTransformer(nn.Module):
 
         if x.requires_grad and self.add_hook:
             x.register_hook(self.save_inp_grad)
-        
+
         if self.need_ig:
             ig = []
 
@@ -707,8 +707,16 @@ def deit_small_patch16_224(
         print("Pre-trained weights on ImageNet loaded...")
     elif weight_path != None:
         checkpoint = torch.load(weight_path)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        print(f"Weights loaded from {weight_path}")
+        if "model" in checkpoint:
+            model = checkpoint["model"]
+            print(f"The whole model object loaded from {weight_path}")
+        elif "model_state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["model_state_dict"])
+            print(f"Weights loaded from {weight_path} from the state_dict")
+        else:
+            print(
+                "No weights loaded due to bad checkpoint format, using random weights..."
+            )
     else:
         print("No weights loaded, using random weights...")
     return model

@@ -19,6 +19,7 @@ def cal_metrics(df):
     output a dic, 'acc_avg': value, 'acc_per_type': array[x,x,x], 'PQD', 'DPM', 'EOM'
     """
     is_binaryCLF = len(df["label"].unique()) == 2
+    num_classes = len(df["label"].unique())
 
     type_indices = sorted(list(df["fitzpatrick"].unique()))
     type_indices_binary = sorted(list(df["fitzpatrick_binary"].unique()))
@@ -152,9 +153,29 @@ def cal_metrics(df):
                 AUC_per_type.append(np.nan)
         AUC_Gap = max(AUC_per_type) - min(AUC_per_type)
     else:
-        AUC = -1
-        AUC_per_type = [-1] * len(type_indices)
-        AUC_Gap = -1
+        all_probs = np.array(df["all_probability"].to_list())
+        AUC = (
+            roc_auc_score(df["label"], all_probs, average="macro", multi_class="ovo")
+            * 100
+        )
+
+        AUC_per_type = []
+        for i in range(len(label_array_per_fitz)):
+            df_filtered = df[df["fitzpatrick"] == i]
+            all_probs = np.array(df_filtered["all_probability"].to_list())
+            try:
+                AUC_per_type.append(
+                    roc_auc_score(
+                        df_filtered["label"],
+                        all_probs,
+                        average="macro",
+                        multi_class="ovr",
+                    )
+                    * 100
+                )
+            except:
+                AUC_per_type.append(np.nan)
+        AUC_Gap = max(AUC_per_type) - min(AUC_per_type)
 
     ##############################          Metrics with binary Sensative attribute         ##############################
 
