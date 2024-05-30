@@ -290,14 +290,24 @@ def cal_metrics(df):
         if not np.isnan(val):
             EOpp0 += val
 
+    EOpp0_new = np.abs((np.array(class_tnr_fitz1) - np.array(class_tnr_fitz0))).mean()
+
     # EOpp1
     EOpp1 = 0
     for c in range(len(class_tpr_fitz0)):
         val = abs(class_tpr_fitz1[c] - class_tpr_fitz0[c])
         if not np.isnan(val):
             EOpp1 += val
+    EOpp1_new = np.abs((np.array(class_tpr_fitz1) - np.array(class_tpr_fitz0))).mean()
 
     # EOdd
+    EOdd_new = (
+        np.abs(
+            (np.array(class_tpr_fitz1) - np.array(class_tpr_fitz0))
+            + (np.array(class_fpr_fitz1) - np.array(class_fpr_fitz0))
+        ).mean()
+        / 2
+    )
     EOdd = 0
     for c in range(len(class_tpr_fitz0)):
         val = abs(
@@ -331,6 +341,9 @@ def cal_metrics(df):
         "EOpp0": EOpp0,
         "EOpp1": EOpp1,
         "EOdd": EOdd,
+        "EOdd_new": EOdd_new,
+        "EOpp0_new": EOpp0_new,
+        "EOpp1_new": EOpp1_new,
         "NAR": NAR,
         "NFR_W": NFR_W,
         "NFR_Mac": NFR_Mac,
