@@ -577,7 +577,8 @@ def main(config, args):
         checkpoint = {
             "config": config,
             "leading_val_metrics": val_metrics,
-            "model_state_dict": pruned_model.state_dict(),
+            # "model_state_dict": pruned_model.state_dict(),
+            "model": pruned_model,
         }
         torch.save(checkpoint, model_path)
 
