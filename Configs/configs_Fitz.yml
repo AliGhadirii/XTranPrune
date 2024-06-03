@@ -2,7 +2,7 @@ seed: 42
 root_image_dir: /home/ali/Datasets/Fitz17k/Images/
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
 dataset_name: Fitz17k
-output_folder_path: /home/ali/Outputs/Fitzpatrick17k/Contrastive/MA_MinDiff/RR80_PR10_B20/
+output_folder_path: /home/ali/Outputs/Fitzpatrick17k/Contrastive/MA_Uncertainty_MinJSD_Diff/RR80_PR40_B80/
 num_workers: 1
 default:
   batch_size: 64
@@ -20,10 +20,10 @@ prune:
   batch_size: 4
   num_batch_per_iter: 500
   main_mask_retain_rate: 0.8
-  pruning_rate: 0.1
-  beta1: 0.2
-  beta2: 0.2
+  pruning_rate: 0.4
+  beta1: 0.8
+  beta2: 0.8
   cont_method: transformer_attribution                # ["transformer_attribution", "attr", "grad", "attn", "TAM", AttrRoll", "FTaylor", "FTaylorpow2"]
-  method: MA                              # ['normal', 'MA', 'MA_Uncertainty']
-  FObjective: MinDiff                                           # [MinDiff, MinMMD]
+  method: MA_Uncertainty                                          # ['normal', 'MA', 'MA_Uncertainty']
+  FObjective: MinJSD_Diff                             # [MinDiff, MinJSD_Diff]
   verbose: 2                                          # [0, 1, 2] (more details as the number grows)

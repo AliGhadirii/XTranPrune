@@ -9,7 +9,7 @@ import sys
 
 import torch
 
-from Utils.Misc_utils import set_seeds, Logger, get_stat, get_mask_idx
+from Utils.Misc_utils import set_seeds, Logger, get_stat, get_mask_idx, js_divergence
 from Utils.Metrics import plot_metrics
 from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
@@ -212,8 +212,25 @@ def Contrastive(
         ),
     )
 
-    if config["prune"]["FObjective"] == "MinMMD":
-        pass
+    if config["prune"]["FObjective"] == "MinJSD_Diff":
+        jsd = torch.ones(S0_blk_attrs_iter.shape[0], S0_blk_attrs_iter.shape[1]).to(
+            device
+        )
+        for encoder_idx in range(jsd.shape[0]):
+            for head_idx in range(jsd.shape[1]):
+
+                # Get the attention masks for the current head and encoder
+                P = S0_blk_attrs_iter[encoder_idx, head_idx, :, :]
+                Q = S1_blk_attrs_iter[encoder_idx, head_idx, :, :]
+
+                # Calculate JSD and store in the result tensor
+                jsd_value = js_divergence(P, Q)
+                jsd[encoder_idx, head_idx] = jsd_value
+
+        disc_blk_attrs_iter = jsd.unsqueeze(-1).unsqueeze(-1) * (
+            S0_blk_attrs_iter - S1_blk_attrs_iter
+        )
+
     elif config["prune"]["FObjective"] == "MinDiff":
         disc_blk_attrs_iter = S0_blk_attrs_iter - S1_blk_attrs_iter
     else:

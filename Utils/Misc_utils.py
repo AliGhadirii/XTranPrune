@@ -2,6 +2,8 @@ import random
 import sys
 import torch
 import numpy as np
+import torch
+import torch.nn.functional as F
 from torch.optim.lr_scheduler import _LRScheduler
 import warnings
 
@@ -118,3 +120,29 @@ def get_mask_idx(tensor, rate):
     mask = (tensor < threshold_tmp).float()
 
     return mask
+
+
+def js_divergence(P, Q, eps=1e-10):
+    # Normalize the tensors to get probability distributions
+    P = P / (torch.sum(P) + eps)
+    Q = Q / (torch.sum(Q) + eps)
+
+    # Calculate the midpoint distribution
+    M = 0.5 * (P + Q)
+
+    # Calculate the KL divergence between P and M and between Q and M
+    def kl_divergence(A, B):
+        A = A + eps  # Avoid log(0) by adding a small constant
+        B = B + eps  # Avoid division by zero
+        return torch.sum(A * torch.log(A / B))
+
+    Dkl_PM = kl_divergence(P, M)
+    Dkl_QM = kl_divergence(Q, M)
+
+    # Calculate the Jensen-Shannon Divergence
+    JSD = 0.5 * (Dkl_PM + Dkl_QM)
+
+    # Normalize JSD by dividing by log(2), limiting the the output in the range [0, 1]
+    JSD /= torch.log(torch.tensor(2.0))
+
+    return JSD
