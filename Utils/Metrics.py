@@ -19,6 +19,7 @@ def cal_metrics(df):
     output a dic, 'acc_avg': value, 'acc_per_type': array[x,x,x], 'PQD', 'DPM', 'EOM'
     """
     is_binaryCLF = len(df["label"].unique()) == 2
+    num_classes = len(df["label"].unique())
 
     type_indices = sorted(list(df["fitzpatrick"].unique()))
     type_indices_binary = sorted(list(df["fitzpatrick_binary"].unique()))
@@ -152,9 +153,29 @@ def cal_metrics(df):
                 AUC_per_type.append(np.nan)
         AUC_Gap = max(AUC_per_type) - min(AUC_per_type)
     else:
-        AUC = -1
-        AUC_per_type = [-1] * len(type_indices)
-        AUC_Gap = -1
+        all_probs = np.array(df["all_probability"].to_list())
+        AUC = (
+            roc_auc_score(df["label"], all_probs, average="macro", multi_class="ovo")
+            * 100
+        )
+
+        AUC_per_type = []
+        for i in range(len(label_array_per_fitz)):
+            df_filtered = df[df["fitzpatrick"] == i]
+            all_probs = np.array(df_filtered["all_probability"].to_list())
+            try:
+                AUC_per_type.append(
+                    roc_auc_score(
+                        df_filtered["label"],
+                        all_probs,
+                        average="macro",
+                        multi_class="ovr",
+                    )
+                    * 100
+                )
+            except:
+                AUC_per_type.append(np.nan)
+        AUC_Gap = max(AUC_per_type) - min(AUC_per_type)
 
     ##############################          Metrics with binary Sensative attribute         ##############################
 
@@ -269,14 +290,24 @@ def cal_metrics(df):
         if not np.isnan(val):
             EOpp0 += val
 
+    EOpp0_new = np.abs((np.array(class_tnr_fitz1) - np.array(class_tnr_fitz0))).mean()
+
     # EOpp1
     EOpp1 = 0
     for c in range(len(class_tpr_fitz0)):
         val = abs(class_tpr_fitz1[c] - class_tpr_fitz0[c])
         if not np.isnan(val):
             EOpp1 += val
+    EOpp1_new = np.abs((np.array(class_tpr_fitz1) - np.array(class_tpr_fitz0))).mean()
 
     # EOdd
+    EOdd_new = (
+        np.abs(
+            (np.array(class_tpr_fitz1) - np.array(class_tpr_fitz0))
+            + (np.array(class_fpr_fitz1) - np.array(class_fpr_fitz0))
+        ).mean()
+        / 2
+    )
     EOdd = 0
     for c in range(len(class_tpr_fitz0)):
         val = abs(
@@ -304,19 +335,22 @@ def cal_metrics(df):
         "F1_per_type_Mac": F1_Mac_array,
         "F1_Mac_gap": max(F1_Mac_array) - min(F1_Mac_array),
         "Worst_F1_Mac": min(F1_Mac_array),
+        "AUC": AUC,
+        "AUC_per_type": AUC_per_type,
+        "AUC_Gap": AUC_Gap,
+        "AUC_min": min(AUC_per_type),
         "PQD": PQD,
         "DPM": DPM,
         "EOM": EOM,
         "EOpp0": EOpp0,
         "EOpp1": EOpp1,
         "EOdd": EOdd,
+        "EOdd_new": EOdd_new,
+        "EOpp0_new": EOpp0_new,
+        "EOpp1_new": EOpp1_new,
         "NAR": NAR,
         "NFR_W": NFR_W,
         "NFR_Mac": NFR_Mac,
-        "AUC": AUC,
-        "AUC_per_type": AUC_per_type,
-        "AUC_Gap": AUC_Gap,
-        "AUC_min": min(AUC_per_type),
         "acc_avg_binary": avg_acc_binary,
         "acc_per_type_binary": acc_array_binary,
         "PQD_binary": PQD_binary,

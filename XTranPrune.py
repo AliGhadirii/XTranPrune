@@ -61,7 +61,7 @@ def XTranPrune(
 
         main_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
         SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
-        
+
         for i in range(main_inputs.shape[0]):  # iterate over batch size
             if config["prune"]["cont_method"] == "attn":
                 main_blk_attrs_input = main_explainer.generate_attn(
@@ -81,7 +81,7 @@ def XTranPrune(
                 )
 
             elif config["prune"]["cont_method"] == "TAM":
-                
+
                 _, main_blk_attrs_input = main_explainer.generate_TAM(
                     input=main_inputs[i].unsqueeze(0),
                     index=main_labels[i],
@@ -97,9 +97,13 @@ def XTranPrune(
                 main_blk_attrs_input = main_blk_attrs_input.squeeze(0)
                 SA_blk_attrs_input = SA_blk_attrs_input.squeeze(0)
             elif config["prune"]["cont_method"] == "AttrRoll":
-                    
-                _, main_blk_attrs_input = main_explainer.generate_AttrRoll(input=main_inputs[i].unsqueeze(0), index=main_labels[i])
-                _, SA_blk_attrs_input = SA_explainer.generate_AttrRoll(input=SA_inputs[i].unsqueeze(0), index=SA_labels[i])
+
+                _, main_blk_attrs_input = main_explainer.generate_AttrRoll(
+                    input=main_inputs[i].unsqueeze(0), index=main_labels[i]
+                )
+                _, SA_blk_attrs_input = SA_explainer.generate_AttrRoll(
+                    input=SA_inputs[i].unsqueeze(0), index=SA_labels[i]
+                )
             elif config["prune"]["cont_method"] == "FTaylor":
                 main_blk_attrs_input = main_explainer.generate_FTaylor(
                     input=main_inputs[i].unsqueeze(0),
@@ -130,13 +134,11 @@ def XTranPrune(
                     method=config["prune"]["cont_method"],
                 )
 
-
             main_blk_attrs_batch = main_blk_attrs_batch + main_blk_attrs_input.detach()
             SA_blk_attrs_batch = SA_blk_attrs_batch + SA_blk_attrs_input.detach()
 
             main_blk_attrs_input = None
             SA_blk_attrs_input = None
-            cam = None
 
         # Averaging the block importances for the batch
         main_blk_attrs_batch = main_blk_attrs_batch / main_inputs.shape[0]
@@ -296,8 +298,12 @@ def XTranPrune(
 
     # NEEDS FIXING: generalize it LATER
     if prun_mask.shape[0] < main_model.depth:
-        ones_tensor = torch.ones((main_model.depth - prun_mask.shape[0],) + prun_mask.shape[1:], dtype=prun_mask.dtype, device=prun_mask.device)
-            
+        ones_tensor = torch.ones(
+            (main_model.depth - prun_mask.shape[0],) + prun_mask.shape[1:],
+            dtype=prun_mask.dtype,
+            device=prun_mask.device,
+        )
+
         # Concatenate the original tensor with the ones tensor along the first dimension
         prun_mask = torch.cat([prun_mask, ones_tensor], dim=0)
 
@@ -512,7 +518,8 @@ def main(config, args):
         checkpoint = {
             "config": config,
             "leading_val_metrics": val_metrics,
-            "model_state_dict": pruned_model.state_dict(),
+            # "model_state_dict": pruned_model.state_dict(),
+            "model": pruned_model,
         }
         torch.save(checkpoint, model_path)
 
