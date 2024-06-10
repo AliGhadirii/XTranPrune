@@ -551,6 +551,12 @@ def main(config, args):
             "negative",
             config,
         )
+        plot_metrics(
+            val_metrics_df,
+            ["EOpp0_new", "EOpp1_new", "EOdd_new"],
+            "negative_new",
+            config,
+        )
 
 
 if __name__ == "__main__":
