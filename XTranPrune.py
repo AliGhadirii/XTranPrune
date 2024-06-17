@@ -11,7 +11,7 @@ import torch
 
 from Utils.Misc_utils import set_seeds, Logger, get_stat, get_mask_idx
 from Utils.Metrics import plot_metrics
-from Datasets.dataloaders import get_dataloaders
+from Datasets.dataloaders import get_dataloaders, get_dataloaders_old
 from Models.ViT_LRP import deit_small_patch16_224
 from Explainability.ViT_Explainer import Explainer
 from Evaluation import eval_model
@@ -20,16 +20,14 @@ from Evaluation import eval_model
 def XTranPrune(
     main_model,
     SA_model,
-    main_dataloader,
-    SA_dataloader,
+    dataloader,
     device,
     config,
     prun_iter_cnt,
     verbose=2,
     MA_vectors=None,
 ):
-    main_DL_iter = iter(main_dataloader)
-    SA_DL_iter = iter(SA_dataloader)
+    DL_iter = iter(dataloader)
 
     main_explainer = Explainer(main_model)
     SA_explainer = Explainer(SA_model)
@@ -51,45 +49,48 @@ def XTranPrune(
         total=config["prune"]["num_batch_per_iter"],
         desc="Generating masks",
     ):
-        main_BR_batch = next(main_DL_iter)
-        main_inputs = main_BR_batch["image"].to(device)
-        main_labels = main_BR_batch[config["prune"]["main_level"]].to(device)
 
-        SA_BR_batch = next(SA_DL_iter)
-        SA_inputs = SA_BR_batch["image"].to(device)
-        SA_labels = SA_BR_batch[config["prune"]["SA_level"]].to(device)
+        try:
+            batch = next(DL_iter)
+        except StopIteration:
+            DL_iter = iter(dataloader)
+            batch = next(DL_iter)
+
+        inputs = batch["image"].to(device)
+        main_labels = batch[config["prune"]["main_level"]].to(device)
+        SA_labels = batch[config["prune"]["SA_level"]].to(device)
 
         main_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
         SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
 
-        for i in range(main_inputs.shape[0]):  # iterate over batch size
+        for i in range(inputs.shape[0]):  # iterate over batch size
             if config["prune"]["cont_method"] == "attn":
                 main_blk_attrs_input = main_explainer.generate_attn(
-                    input=main_inputs[i].unsqueeze(0)
+                    input=inputs[i].unsqueeze(0)
                 )
                 SA_blk_attrs_input = SA_explainer.generate_attn(
-                    input=SA_inputs[i].unsqueeze(0)
+                    input=inputs[i].unsqueeze(0)
                 )
             elif config["prune"]["cont_method"] == "TranInter":
                 _, main_blk_attrs_input = main_explainer.generate_TranInter(
-                    input=main_inputs[i].unsqueeze(0),
+                    input=inputs[i].unsqueeze(0),
                     index=main_labels[i],
                 )
                 _, SA_blk_attrs_input = SA_explainer.generate_TranInter(
-                    input=SA_inputs[i].unsqueeze(0),
+                    input=inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                 )
 
             elif config["prune"]["cont_method"] == "TAM":
 
                 _, main_blk_attrs_input = main_explainer.generate_TAM(
-                    input=main_inputs[i].unsqueeze(0),
+                    input=inputs[i].unsqueeze(0),
                     index=main_labels[i],
                     start_layer=0,
                     steps=10,
                 )
                 _, SA_blk_attrs_input = SA_explainer.generate_TAM(
-                    input=SA_inputs[i].unsqueeze(0),
+                    input=inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                     start_layer=0,
                     steps=10,
@@ -99,37 +100,37 @@ def XTranPrune(
             elif config["prune"]["cont_method"] == "AttrRoll":
 
                 _, main_blk_attrs_input = main_explainer.generate_AttrRoll(
-                    input=main_inputs[i].unsqueeze(0), index=main_labels[i]
+                    input=inputs[i].unsqueeze(0), index=main_labels[i]
                 )
                 _, SA_blk_attrs_input = SA_explainer.generate_AttrRoll(
-                    input=SA_inputs[i].unsqueeze(0), index=SA_labels[i]
+                    input=inputs[i].unsqueeze(0), index=SA_labels[i]
                 )
             elif config["prune"]["cont_method"] == "FTaylor":
                 main_blk_attrs_input = main_explainer.generate_FTaylor(
-                    input=main_inputs[i].unsqueeze(0),
+                    input=inputs[i].unsqueeze(0),
                     index=main_labels[i],
                 )
                 SA_blk_attrs_input = SA_explainer.generate_FTaylor(
-                    input=SA_inputs[i].unsqueeze(0),
+                    input=inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                 )
             elif config["prune"]["cont_method"] == "FTaylorpow2":
                 main_blk_attrs_input = main_explainer.generate_FTaylorpow2(
-                    input=main_inputs[i].unsqueeze(0),
+                    input=inputs[i].unsqueeze(0),
                     index=main_labels[i],
                 )
                 SA_blk_attrs_input = SA_explainer.generate_FTaylorpow2(
-                    input=SA_inputs[i].unsqueeze(0),
+                    input=inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                 )
             else:
                 _, main_blk_attrs_input = main_explainer.generate_LRP(
-                    input=main_inputs[i].unsqueeze(0),
+                    input=inputs[i].unsqueeze(0),
                     index=main_labels[i],
                     method=config["prune"]["cont_method"],
                 )
                 _, SA_blk_attrs_input = SA_explainer.generate_LRP(
-                    input=SA_inputs[i].unsqueeze(0),
+                    input=inputs[i].unsqueeze(0),
                     index=SA_labels[i],
                     method=config["prune"]["cont_method"],
                 )
@@ -141,8 +142,8 @@ def XTranPrune(
             SA_blk_attrs_input = None
 
         # Averaging the block importances for the batch
-        main_blk_attrs_batch = main_blk_attrs_batch / main_inputs.shape[0]
-        SA_blk_attrs_batch = SA_blk_attrs_batch / SA_inputs.shape[0]
+        main_blk_attrs_batch = main_blk_attrs_batch / inputs.shape[0]
+        SA_blk_attrs_batch = SA_blk_attrs_batch / inputs.shape[0]
 
         main_blk_attrs_iter = main_blk_attrs_iter + main_blk_attrs_batch
         SA_blk_attrs_iter = SA_blk_attrs_iter + SA_blk_attrs_batch
@@ -359,31 +360,29 @@ def main(config, args):
 
     set_seeds(config["seed"])
 
-    main_dataloaders, main_dataset_sizes, main_num_classes = get_dataloaders(
+    dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
+        sampler_type=config["default"]["sampler_type"],
         dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
+        stratify_cols=config["default"]["stratify_cols"],
+        main_level=config["prune"]["main_level"],
+        SA_level=config["prune"]["SA_level"],
         batch_size=config["prune"]["batch_size"],
         num_workers=1,
     )
-
-    SA_dataloaders, SA_dataset_sizes, SA_num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        dataset_name=config["dataset_name"],
-        level=config["prune"]["SA_level"],
-        batch_size=config["prune"]["batch_size"],
-        num_workers=1,
-    )
-
-    dataloaders, dataset_sizes, num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
-        batch_size=config["default"]["batch_size"],
-        num_workers=1,
+    val_dataloaders, val_dataset_sizes, val_main_num_classes, val_SA_num_classes = (
+        get_dataloaders(
+            root_image_dir=config["root_image_dir"],
+            Generated_csv_path=config["Generated_csv_path"],
+            sampler_type="WeightedRandom",
+            dataset_name=config["dataset_name"],
+            stratify_cols=["low"],
+            main_level=config["prune"]["main_level"],
+            SA_level=config["prune"]["SA_level"],
+            batch_size=config["default"]["batch_size"],
+            num_workers=1,
+        )
     )
 
     # load both models
@@ -403,10 +402,23 @@ def main(config, args):
     )
     SA_model = SA_model.eval().to(device)
 
+    val_metrics, _ = eval_model(
+        main_model,
+        val_dataloaders,
+        val_dataset_sizes,
+        val_main_num_classes,
+        device,
+        config["prune"]["main_level"],
+        "DeiT_S_LRP_PIter0",
+        config,
+        save_preds=True,
+    )
+
+    val_metrics_df = pd.DataFrame([val_metrics])
+
     prun_iter_cnt = 0
     consecutive_no_improvement = 0
     best_bias_metric = config["prune"]["bias_metric_prev"]
-    val_metrics_df = None
 
     main_blk_attrs_MA = None
     SA_blk_attrs_MA = None
@@ -435,8 +447,7 @@ def main(config, args):
             pruned_model, MA_vectors = XTranPrune(
                 main_model=main_model,
                 SA_model=SA_model,
-                main_dataloader=main_dataloaders["train"],
-                SA_dataloader=SA_dataloaders["train"],
+                dataloader=dataloaders["train"],
                 device=device,
                 verbose=config["prune"]["verbose"],
                 config=config,
@@ -447,8 +458,7 @@ def main(config, args):
             pruned_model, MA_vectors = XTranPrune(
                 main_model=pruned_model,
                 SA_model=SA_model,
-                main_dataloader=main_dataloaders["train"],
-                SA_dataloader=SA_dataloaders["train"],
+                dataloader=dataloaders["train"],
                 device=device,
                 verbose=config["prune"]["verbose"],
                 config=config,
@@ -458,9 +468,9 @@ def main(config, args):
 
         val_metrics, _ = eval_model(
             pruned_model,
-            dataloaders,
-            dataset_sizes,
-            num_classes,
+            val_dataloaders,
+            val_dataset_sizes,
+            val_main_num_classes,
             device,
             config["prune"]["main_level"],
             model_name,
@@ -532,12 +542,9 @@ def main(config, args):
             )
         )
 
-        if prun_iter_cnt == 0:
-            val_metrics_df = pd.DataFrame([val_metrics])
-        else:
-            val_metrics_df = pd.concat(
-                [val_metrics_df, pd.DataFrame([val_metrics])], ignore_index=True
-            )
+        val_metrics_df = pd.concat(
+            [val_metrics_df, pd.DataFrame([val_metrics])], ignore_index=True
+        )
         val_metrics_df.to_csv(
             os.path.join(config["output_folder_path"], f"Pruning_metrics.csv"),
             index=False,
