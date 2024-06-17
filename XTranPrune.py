@@ -6,6 +6,7 @@ from tqdm import tqdm
 import pandas as pd
 import shutil
 import sys
+from pprint import pprint
 
 import torch
 
@@ -351,7 +352,8 @@ def main(config, args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     print("Pruning configs:")
-    print(config["prune"])
+    pprint(config)
+    print()
 
     shutil.copy(
         args.config,
@@ -415,6 +417,10 @@ def main(config, args):
     )
 
     val_metrics_df = pd.DataFrame([val_metrics])
+
+    print("Validation metrics using the original model:")
+    pprint(val_metrics)
+    print()
 
     prun_iter_cnt = 0
     consecutive_no_improvement = 0
@@ -518,7 +524,8 @@ def main(config, args):
                 )
                 consecutive_no_improvement += 1
 
-        print(val_metrics)
+        pprint(val_metrics)
+        print()
 
         model_path = os.path.join(
             config["output_folder_path"],

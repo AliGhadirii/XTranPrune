@@ -85,7 +85,7 @@ def get_dataloaders(
 
     # Initiliaze samplers for imbalanced dataset
     if sampler_type == "WeightedRandom":
-        print("INFO: Using WeightedRandomSampler")
+        print("INFO: Using WeightedRandomSampler\n")
         class_sample_count = np.array(train_df[main_level].value_counts().sort_index())
         weight = 1.0 / class_sample_count
         samples_weight = np.array([weight[t] for t in train_df[main_level]])
@@ -104,7 +104,7 @@ def get_dataloaders(
         )
 
     elif sampler_type == "Stratified":
-        print("INFO: Using StratifiedSampler")
+        print("INFO: Using StratifiedSampler\n")
         sampler = StratifiedSampler(train_df)
 
         transformed_train = SkinDataset(
@@ -114,7 +114,7 @@ def get_dataloaders(
             transform=augment_transform,
         )
     elif sampler_type == "CustomStratified":
-        print("INFO: Using CustomStratifiedSampler")
+        print("INFO: Using CustomStratifiedSampler\n")
         sampler = CustomStratifiedSampler(
             df=train_df,
             label_col=main_level,
