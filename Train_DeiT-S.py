@@ -246,11 +246,11 @@ def main(config):
 
     model_name = f"DiT_S_LRP_level={config['default']['level']}"
 
-    dataloaders, dataset_sizes, num_classes = get_dataloaders(
+    dataloaders, dataset_sizes, num_classes, _ = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         dataset_name=config["dataset_name"],
-        level=config["default"]["level"],
+        main_level=config["default"]["level"],
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )

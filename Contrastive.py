@@ -6,6 +6,7 @@ from tqdm import tqdm
 import pandas as pd
 import shutil
 import sys
+from pprint import pprint
 
 import torch
 
@@ -437,57 +438,62 @@ def main(config, args):
 
     set_seeds(config["seed"])
 
-    dataloaders, dataset_sizes, num_classes = get_dataloaders(
+    dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
+        sampler_type=config["default"]["sampler_type"],
         dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
+        stratify_cols=config["default"]["stratify_cols"],
+        main_level=config["prune"]["main_level"],
+        SA_level=config["prune"]["SA_level"],
         batch_size=config["prune"]["batch_size"],
         num_workers=1,
     )
 
-    S0_dataloaders, S0_dataset_sizes, S0_num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
-        batch_size=config["prune"]["batch_size"],
-        fitz_filter=0,
-        num_workers=1,
-    )
-
-    S1_dataloaders, S1_dataset_sizes, S1_num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
-        batch_size=config["prune"]["batch_size"],
-        fitz_filter=1,
-        num_workers=1,
-    )
-
-    val_dataloaders, val_dataset_sizes, val_num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
-        batch_size=config["default"]["batch_size"],
-        num_workers=1,
+    val_dataloaders, val_dataset_sizes, val_main_num_classes, val_SA_num_classes = (
+        get_dataloaders(
+            root_image_dir=config["root_image_dir"],
+            Generated_csv_path=config["Generated_csv_path"],
+            sampler_type="WeightedRandom",
+            dataset_name=config["dataset_name"],
+            stratify_cols=["low"],
+            main_level=config["prune"]["main_level"],
+            SA_level=config["prune"]["SA_level"],
+            batch_size=config["default"]["batch_size"],
+            num_workers=1,
+        )
     )
 
     # load both models
     model = deit_small_patch16_224(
-        num_classes=S0_num_classes,
+        num_classes=main_num_classes,
         add_hook=True,
         need_ig=True if config["prune"]["cont_method"] == "AttrRoll" else False,
         weight_path=config["prune"]["main_br_path"],
     )
     model = model.eval().to(device)
 
+    val_metrics, _ = eval_model(
+        model,
+        val_dataloaders,
+        val_dataset_sizes,
+        val_main_num_classes,
+        device,
+        config["prune"]["main_level"],
+        "DeiT_S_LRP_PIter0",
+        config,
+        save_preds=True,
+    )
+
+    val_metrics_df = pd.DataFrame([val_metrics])
+
+    print("Validation metrics using the original model:")
+    pprint(val_metrics)
+    print()
+
     prun_iter_cnt = 0
     consecutive_no_improvement = 0
     best_bias_metric = config["prune"]["bias_metric_prev"]
-    val_metrics_df = None
 
     blk_attrs_MA = None
     disc_blk_attrs_MA = None
@@ -536,7 +542,7 @@ def main(config, args):
             pruned_model,
             val_dataloaders,
             val_dataset_sizes,
-            val_num_classes,
+            val_main_num_classes,
             device,
             config["prune"]["main_level"],
             model_name,
@@ -584,7 +590,8 @@ def main(config, args):
                 )
                 consecutive_no_improvement += 1
 
-        print(val_metrics)
+        pprint(val_metrics)
+        print()
 
         model_path = os.path.join(
             config["output_folder_path"],
@@ -608,12 +615,10 @@ def main(config, args):
             )
         )
 
-        if prun_iter_cnt == 0:
-            val_metrics_df = pd.DataFrame([val_metrics])
-        else:
-            val_metrics_df = pd.concat(
-                [val_metrics_df, pd.DataFrame([val_metrics])], ignore_index=True
-            )
+        val_metrics_df = pd.concat(
+            [val_metrics_df, pd.DataFrame([val_metrics])], ignore_index=True
+        )
+
         val_metrics_df.to_csv(
             os.path.join(config["output_folder_path"], f"Pruning_metrics.csv"),
             index=False,

@@ -282,7 +282,7 @@ def XTranPrune(
             )
             prun_mask_blk.append(prun_mask_blk_head)
 
-            if verbose == 2:
+            if verbose == 2 and prun_iter_cnt == 0:
                 print(
                     f"#params pruned in head {h+1}: {(num_tokens*num_tokens) - prun_mask_blk_head.sum()}/{(num_tokens*num_tokens)} \
                     | Rate: {((num_tokens*num_tokens) - prun_mask_blk_head.sum())/(num_tokens*num_tokens)}"
@@ -290,7 +290,7 @@ def XTranPrune(
 
         prun_mask_blk = torch.stack(prun_mask_blk, dim=0)
         prun_mask.append(prun_mask_blk)
-        if verbose == 2:
+        if verbose == 2 and prun_iter_cnt == 0:
             print(
                 f"@@@ #params pruned in block {blk_idx+1}: {(num_tokens*num_tokens*main_model.num_heads) - prun_mask_blk.sum()}/{(num_tokens*num_tokens*main_model.num_heads)} \
                 | Rate: {((num_tokens*num_tokens*main_model.num_heads) - prun_mask_blk.sum())/(num_tokens*num_tokens*main_model.num_heads)}"
@@ -578,5 +578,5 @@ if __name__ == "__main__":
     parser.add_argument("--config", help="Path to configuration yaml file.")
     args = parser.parse_args()
     with open(args.config, "r") as fh:
-        config = yaml.load(fh, Loader=yaml.FullLoader)
+        config = yaml.safe_load(fh)
     main(config, args)

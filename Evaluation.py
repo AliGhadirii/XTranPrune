@@ -337,18 +337,21 @@ if __name__ == "__main__":
 
     set_seeds(config["seed"])
 
-    dataloaders, dataset_sizes, num_classes = get_dataloaders(
+    dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
+        sampler_type="WeightedRandom",
         dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
+        stratify_cols=["low"],
+        main_level=config["prune"]["main_level"],
+        SA_level=config["prune"]["SA_level"],
         batch_size=config["default"]["batch_size"],
         num_workers=1,
     )
 
     # load both models
     model = deit_small_patch16_224(
-        num_classes=num_classes,
+        num_classes=main_num_classes,
         weight_path=config["eval_path"],
     )
     model = model.eval().to(device)
@@ -357,7 +360,7 @@ if __name__ == "__main__":
         model,
         dataloaders,
         dataset_sizes,
-        num_classes,
+        main_num_classes,
         device,
         config["prune"]["main_level"],
         "main model",

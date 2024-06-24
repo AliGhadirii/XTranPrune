@@ -10,7 +10,9 @@ default:
   mode: train
   n_epochs: 70
   pretrained: True                                     # [True, False]
-  stratify_cols: ["high", "fitzpatrick"]
+  stratify_cols:
+  - high
+  - fitzpatrick
   sampler_type: CustomStratified                    # ["WeightedRandom", "Stratified", "CustomStratified"]
 prune:
   main_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_baseline_High/DiT_S_LRP_level=high_checkpoint_BASE.pth
