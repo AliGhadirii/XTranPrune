@@ -311,24 +311,14 @@ def XTranPrune(
 
     prev_mask = main_model.get_attn_pruning_mask()
 
+    main_model.set_attn_pruning_mask(prun_mask, config["prune"]["MaskUpdate_Type"])
+
     if verbose > 0 and prev_mask is not None:
-        new_mask = prev_mask * prun_mask
-        num_pruned_prev = (
-            prev_mask.shape[0]
-            * prev_mask.shape[1]
-            * prev_mask.shape[2]
-            * prev_mask.shape[3]
-        ) - prev_mask.sum()
-        num_pruned_new = (
-            new_mask.shape[0]
-            * new_mask.shape[1]
-            * new_mask.shape[2]
-            * new_mask.shape[3]
-        ) - new_mask.sum()
+        new_mask = main_model.get_attn_pruning_mask()
+
         print(
-            f"New #pruned_parameters - Previous #pruned_parameters = {num_pruned_new} - {num_pruned_prev} = {num_pruned_new - num_pruned_prev} "
+            f"New #pruned_parameters - Previous #pruned_parameters = {new_mask.sum()} - {prev_mask.sum()} = {new_mask.sum() - prev_mask.sum()} "
         )
-    main_model.set_attn_pruning_mask(prun_mask)
 
     return main_model, MA_vectors
 

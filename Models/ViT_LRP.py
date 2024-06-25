@@ -144,14 +144,19 @@ class Attention(nn.Module):
     def get_attn_gradients(self):
         return self.attn_gradients
 
-    def set_attn_pruning_mask(self, mask):
+    def set_attn_pruning_mask(self, mask, method="AND"):
         if self.attn_pruning_mask is None:
             self.attn_pruning_mask = mask
         else:
             assert (
                 self.attn_pruning_mask.shape == mask.shape
             ), "Attention class set_attn_pruning_mask(): The shape of the mask is not correct."
-            self.attn_pruning_mask = self.attn_pruning_mask * mask
+            if method == "AND":
+                self.attn_pruning_mask = self.attn_pruning_mask * mask
+            else:
+                self.attn_pruning_mask = (
+                    self.attn_pruning_mask.bool() | mask.bool()
+                ).float()
 
     def get_attn_pruning_mask(self):
         return self.attn_pruning_mask
@@ -422,12 +427,12 @@ class VisionTransformer(nn.Module):
     def no_weight_decay(self):
         return {"pos_embed", "cls_token"}
 
-    def set_attn_pruning_mask(self, mask):
+    def set_attn_pruning_mask(self, mask, method="AND"):
         assert (
             mask.shape[0] == self.depth
         ), "ERROR: Mask shape doesn't match the depth of the model."
         for i in range(self.depth):
-            self.blocks[i].attn.set_attn_pruning_mask(mask[i])
+            self.blocks[i].attn.set_attn_pruning_mask(mask[i], method=method)
 
     def get_attn_pruning_mask(self):
         attn_pruning_mask = []
