@@ -24,9 +24,6 @@ def train_val_split(
     train, test, y_train, y_test = train_test_split(
         df, df["low"], test_size=0.2, random_state=64, stratify=df["stratify"]
     )
-    train_tmp, test_tmp, y_train, y_test = train_test_split(
-        df, df["low"], test_size=0.2, random_state=64, stratify=df["low"]
-    )
 
     print(f"INFO: train test split stratified by {stratify_cols} column(s).")
 
