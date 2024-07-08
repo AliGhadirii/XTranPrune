@@ -12,7 +12,7 @@ import torch
 
 from Utils.Misc_utils import set_seeds, Logger, get_stat, get_mask_idx
 from Utils.Metrics import plot_metrics
-from Datasets.dataloaders import get_dataloaders, get_dataloaders_old
+from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
 from Explainability.ViT_Explainer import Explainer
 from Evaluation import eval_model
