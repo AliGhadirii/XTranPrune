@@ -151,12 +151,19 @@ class Attention(nn.Module):
             assert (
                 self.attn_pruning_mask.shape == mask.shape
             ), "Attention class set_attn_pruning_mask(): The shape of the mask is not correct."
+            assert method in [
+                "AND",
+                "OR",
+                "LAST",
+            ], "Invalid method for mask generation. Choose from ['AND', 'OR', 'LAST'.]"
             if method == "AND":
                 self.attn_pruning_mask = self.attn_pruning_mask * mask
-            else:
+            elif method == "OR":
                 self.attn_pruning_mask = (
                     self.attn_pruning_mask.bool() | mask.bool()
                 ).float()
+            elif method == "LAST":
+                self.attn_pruning_mask = mask
 
     def get_attn_pruning_mask(self):
         return self.attn_pruning_mask

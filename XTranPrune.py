@@ -244,8 +244,11 @@ def XTranPrune(
 
     ###############################  Generating the pruning mask ###############################
 
+    main_mask = []
     prun_mask = []
+
     for blk_idx in range(main_blk_attrs_iter_final.shape[0]):
+        main_mask_blk = []
         prun_mask_blk = []
         for h in range(main_blk_attrs_iter_final.shape[1]):
             # Generating the main mask
@@ -255,22 +258,16 @@ def XTranPrune(
                 main_attrs_flt, 1 - config["prune"]["main_mask_retain_rate"]
             )  # (this param)% of the most important main params will be retained
 
-            main_mask = (main_blk_attrs_iter_final[blk_idx][h] < threshold).float()
-            torch.save(
-                main_mask,
-                os.path.join(
-                    config["output_folder_path"],
-                    "Log_files",
-                    f"main_mask_Iter={prun_iter_cnt + 1}.pth",
-                ),
-            )
+            main_mask_blk_head = (
+                main_blk_attrs_iter_final[blk_idx][h] < threshold
+            ).float()
 
             # Generating the pruning mask from SA branch
-            can_be_pruned = SA_blk_attrs_iter_final[blk_idx][h] * main_mask
+            can_be_pruned = SA_blk_attrs_iter_final[blk_idx][h] * main_mask_blk_head
             can_be_pruned_flt = can_be_pruned.flatten()
 
             k = int(
-                config["prune"]["pruning_rate"] * main_mask.sum()
+                config["prune"]["pruning_rate"] * main_mask_blk_head.sum()
             )  # Pruning Pruning_rate% of the paramters allowed by the main branch to be pruned
 
             top_k_values, top_k_indices = torch.topk(can_be_pruned_flt, k)
@@ -280,6 +277,7 @@ def XTranPrune(
             prun_mask_blk_head = prun_mask_blk_head.reshape(
                 (main_blk_attrs_iter_final.shape[2], main_blk_attrs_iter_final.shape[3])
             )
+            main_mask_blk.append(main_mask_blk_head)
             prun_mask_blk.append(prun_mask_blk_head)
 
             if verbose == 2 and prun_iter_cnt == 0:
@@ -288,7 +286,9 @@ def XTranPrune(
                     | Rate: {((num_tokens*num_tokens) - prun_mask_blk_head.sum())/(num_tokens*num_tokens)}"
                 )
 
+        main_mask_blk = torch.stack(main_mask_blk, dim=0)
         prun_mask_blk = torch.stack(prun_mask_blk, dim=0)
+        main_mask.append(main_mask_blk)
         prun_mask.append(prun_mask_blk)
         if verbose == 2 and prun_iter_cnt == 0:
             print(
@@ -296,7 +296,25 @@ def XTranPrune(
                 | Rate: {((num_tokens*num_tokens*main_model.num_heads) - prun_mask_blk.sum())/(num_tokens*num_tokens*main_model.num_heads)}"
             )
 
+    main_mask = torch.stack(main_mask, dim=0)
     prun_mask = torch.stack(prun_mask, dim=0)
+
+    torch.save(
+        main_mask,
+        os.path.join(
+            config["output_folder_path"],
+            "Log_files",
+            f"main_mask_Iter={prun_iter_cnt + 1}.pth",
+        ),
+    )
+    torch.save(
+        prun_mask,
+        os.path.join(
+            config["output_folder_path"],
+            "Log_files",
+            f"pruning_mask_Iter={prun_iter_cnt + 1}.pth",
+        ),
+    )
 
     # NEEDS FIXING: generalize it LATER
     if prun_mask.shape[0] < main_model.depth:
@@ -315,10 +333,23 @@ def XTranPrune(
 
     if verbose > 0 and prev_mask is not None:
         new_mask = main_model.get_attn_pruning_mask()
+        num_total_nodes_pruned = (new_mask == 0).sum()
+        num_new_nodes_pruned = ((new_mask == 0) & (prev_mask == 1)).sum()
+        num_old_nodes_pruned = ((new_mask == 0) & (prev_mask == 0)).sum()
 
-        print(
-            f"New #pruned_parameters - Previous #pruned_parameters = {new_mask.sum()} - {prev_mask.sum()} = {new_mask.sum() - prev_mask.sum()} "
-        )
+        num_total_nodes_unpruned = (new_mask == 1).sum()
+        num_new_nodes_unpruned = ((new_mask == 1) & (prev_mask == 0)).sum()
+        num_old_nodes_unpruned = ((new_mask == 1) & (prev_mask == 1)).sum()
+
+        print()
+        print("Pruning Statistics:")
+        print(f"Total nodes pruned: {num_total_nodes_pruned.item()}")
+        print(f"New nodes pruned: {num_new_nodes_pruned.item()}")
+        print(f"Old nodes pruned: {num_old_nodes_pruned.item()}")
+
+        print(f"Total nodes unpruned: {num_total_nodes_unpruned.item()}")
+        print(f"New nodes unpruned: {num_new_nodes_unpruned.item()}")
+        print(f"Old nodes unpruned: {num_old_nodes_unpruned.item()}")
 
     return main_model, MA_vectors
 
