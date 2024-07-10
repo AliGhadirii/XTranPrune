@@ -153,15 +153,10 @@ class Attention(nn.Module):
             ), "Attention class set_attn_pruning_mask(): The shape of the mask is not correct."
             assert method in [
                 "AND",
-                "OR",
                 "LAST",
-            ], "Invalid method for mask generation. Choose from ['AND', 'OR', 'LAST'.]"
+            ], "Invalid method for mask generation. Choose from ['AND', 'LAST'.]"
             if method == "AND":
                 self.attn_pruning_mask = self.attn_pruning_mask * mask
-            elif method == "OR":
-                self.attn_pruning_mask = (
-                    self.attn_pruning_mask.bool() | mask.bool()
-                ).float()
             elif method == "LAST":
                 self.attn_pruning_mask = mask
 
