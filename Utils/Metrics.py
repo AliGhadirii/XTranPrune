@@ -418,3 +418,59 @@ def plot_metrics(df, selected_metrics, postfix, config):
         )
     )
     # plt.close()
+
+
+def plot_metrics_training(train_df, val_df, selected_metrics, postfix, config):
+    """
+    Plot selected metrics over iterations comparing training and validation results with annotations for each point.
+
+    Args:
+    - train_df (pd.DataFrame): DataFrame containing training metrics for each iteration.
+    - val_df (pd.DataFrame): DataFrame containing validation metrics for each iteration.
+    - selected_metrics (list of str): List of metric names to include in the plot.
+    - postfix (str): Postfix for the output file name.
+    - config (dict): Configuration dictionary with output folder path.
+    """
+    iterations = list(range(1, len(train_df) + 1))
+    plt.figure(figsize=(len(train_df), len(train_df) * 0.6))
+
+    for metric in selected_metrics:
+        plt.plot(iterations, train_df[metric], label=f"Train {metric}")
+        plt.plot(iterations, val_df[metric], label=f"Val {metric}", linestyle="--")
+
+        # Annotate training metrics
+        for i, txt in enumerate(train_df[metric]):
+            plt.annotate(
+                f"{txt:.3f}",
+                (iterations[i], train_df[metric][i]),
+                textcoords="offset points",
+                xytext=(0, 5),
+                ha="center",
+                fontsize=12,
+                color="blue",  # Adjust color to match the line color
+            )
+
+        # Annotate validation metrics
+        for i, txt in enumerate(val_df[metric]):
+            plt.annotate(
+                f"{txt:.3f}",
+                (iterations[i], val_df[metric][i]),
+                textcoords="offset points",
+                xytext=(0, -10),
+                ha="center",
+                fontsize=12,
+                color="orange",  # Adjust color to match the line color
+            )
+
+    plt.xlabel("Iterations", fontsize=14)
+    plt.ylabel("Metric Values", fontsize=14)
+    plt.title("Metrics Over Iterations", fontsize=16)
+    plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=12)
+    plt.xticks(iterations, fontsize=12)  # Set discrete values on the x-axis
+    plt.yticks(fontsize=12)
+    plt.grid(True)
+
+    plt.tight_layout()  # Adjust layout to prevent clipping of legend
+    plt.savefig(
+        os.path.join(config["output_folder_path"], f"DeiT-S_metrics_{postfix}.png")
+    )
