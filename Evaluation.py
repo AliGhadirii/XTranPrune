@@ -49,8 +49,6 @@ def eval_model(
     p2 = []
     p3 = []
     with torch.no_grad():
-        running_corrects = 0
-        running_balanced_acc_sum = 0
         total = 0
 
         for batch in dataloaders["val"]:
@@ -87,11 +85,6 @@ def eval_model(
                 topk_p.append((_.cpu()).tolist())
                 topk_n.append(preds5.cpu().tolist())
 
-            running_corrects += torch.sum(preds == classes.data)
-            running_balanced_acc_sum += (
-                balanced_accuracy_score(classes.data.cpu(), preds.cpu())
-                * inputs.shape[0]
-            )
             p_list.append(probs.cpu().tolist())
             all_p_list.append(all_probs.cpu().tolist())
             prediction_list.append(preds.cpu().tolist())
@@ -101,9 +94,6 @@ def eval_model(
             fitzpatrick_scale_list.append(fitzpatrick_scale.tolist())
             hasher_list.append(hasher)
             total += inputs.shape[0]
-
-        acc = float(running_corrects) / float(dataset_sizes["val"])
-        balanced_acc = float(running_balanced_acc_sum) / float(dataset_sizes["val"])
 
     def flatten(list_of_lists):
         if len(list_of_lists) == 0:
@@ -164,18 +154,13 @@ def eval_model(
             }
         )
     if save_preds:
-        num_epoch = config["default"]["n_epochs"]
 
         df_preds.to_csv(
             os.path.join(
                 config["output_folder_path"],
-                f"validation_results_{model_type}_epoch={num_epoch}_random_holdout.csv",
+                f"validation_results_{model_type}.csv",
             ),
             index=False,
-        )
-
-        print(
-            f"\nFinal Validation results for {model_type}: Accuracy: {acc}  Balanced Accuracy: {balanced_acc} \n"
         )
 
     metrics = cal_metrics(df_preds)
@@ -202,8 +187,6 @@ def eval_model_SABranch(
     p_list = []
 
     with torch.no_grad():
-        running_corrects = 0
-        running_balanced_acc_sum = 0
         total = 0
 
         for batch in dataloaders["val"]:
@@ -233,28 +216,16 @@ def eval_model_SABranch(
                     probs.cpu().data.numpy(), gender.cpu().data.numpy()
                 )
                 preds = (probs > theshold).to(torch.int32)
-                running_corrects += torch.sum(preds == gender.data)
-                running_balanced_acc_sum += (
-                    balanced_accuracy_score(gender.data.cpu(), preds.cpu())
-                    * inputs.shape[0]
-                )
             else:
                 theshold = find_threshold(
                     probs.cpu().data.numpy(), fitzpatrick_binary.cpu().data.numpy()
                 )
                 preds = (probs > theshold).to(torch.int32)
-                running_corrects += torch.sum(preds == fitzpatrick_binary.data)
-                running_balanced_acc_sum += (
-                    balanced_accuracy_score(fitzpatrick_binary.data.cpu(), preds.cpu())
-                    * inputs.shape[0]
-                )
+
             p_list.append(probs.cpu().tolist())
             prediction_list.append(preds.cpu().tolist())
 
             total += inputs.shape[0]
-
-        acc = float(running_corrects) / float(dataset_sizes["val"])
-        balanced_acc = float(running_balanced_acc_sum) / float(dataset_sizes["val"])
 
     def flatten(list_of_lists):
         if len(list_of_lists) == 0:
@@ -286,16 +257,13 @@ def eval_model_SABranch(
         )
 
     if save_preds:
-        num_epoch = config["default"]["n_epochs"]
+
         df_preds.to_csv(
             os.path.join(
                 config["output_folder_path"],
-                f"validation_results_{model_type}_epoch={num_epoch}_random_holdout.csv",
+                f"validation_results_{model_type}.csv",
             ),
             index=False,
-        )
-        print(
-            f"\nFinal Validation results for {model_type}: Accuracy: {acc}  Balanced Accuracy: {balanced_acc} \n"
         )
 
     y_true = df_preds[config["default"]["level"]].values

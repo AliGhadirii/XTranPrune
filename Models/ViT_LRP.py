@@ -410,6 +410,9 @@ class VisionTransformer(nn.Module):
         self.ig = None
         self.gradients = None
 
+    def set_add_hook(self):
+        self.add_hook = True
+
     def save_inp_grad(self, grad):
         self.inp_grad = grad
 
@@ -716,6 +719,8 @@ def deit_small_patch16_224(
         checkpoint = torch.load(weight_path)
         if "model" in checkpoint:
             model = checkpoint["model"]
+            if model.add_hook == False and add_hook:
+                model.set_add_hook()
             print(f"The whole model object loaded from {weight_path}")
         elif "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])

@@ -60,12 +60,12 @@ def train_model(
 ):
     since = time.time()
 
-    start_epoch = 0
+    start_epoch = 1
     best_f1 = 0
     best_model = None
 
     best_model_path = os.path.join(
-        config["output_folder_path"], f"{model_name}_checkpoint_BASE.pth"
+        config["output_folder_path"], f"{model_name}_BEST.pth"
     )
 
     if os.path.isfile(best_model_path):
@@ -79,11 +79,9 @@ def train_model(
         leading_epoch = checkpoint["leading_epoch"]
         start_epoch = leading_epoch + 1
         best_f1 = leading_val_metrics["F1_Mac"]
+        return model
 
     for epoch in range(start_epoch, config["default"]["n_epochs"]):
-        print("Epoch {}/{}".format(epoch, config["default"]["n_epochs"] - 1))
-        print("-" * 20)
-
         since_epoch = time.time()
 
         # Each epoch has a training and validation phase
@@ -91,27 +89,25 @@ def train_model(
             # Set the model to the training mode
             if phase == "train":
                 model.train()
-
             # Set model to the evaluation mode
             else:
                 model.eval()
 
             # Running parameters
-            # Running parameters
+
             running_loss = 0.0
             all_preds = []
             all_labels = []
             all_probs = []
 
-            print(f"Current phase: {phase}")
-            # Iterate over data
-
             for idx, batch in tqdm(
                 enumerate(dataloaders[phase]),
                 total=len(dataloaders[phase]),
-                desc="Phase: {}".format(phase),
+                desc="Phase {} | Epoch {}/{}".format(
+                    phase, epoch, config["default"]["n_epochs"]
+                ),
             ):
-                # Send inputs and labels to the device
+
                 inputs = batch["image"].to(device)
                 labels = batch[config["default"]["level"]]
 
@@ -172,27 +168,26 @@ def train_model(
                 scheduler.step()
 
             # metrics
+            epoch_stats = {}
+            epoch_stats["loss"] = running_loss / dataset_sizes[phase]
+            epoch_stats["accuracy"] = accuracy_score(all_labels, all_preds) * 100
+            epoch_stats["F1_Mac"] = (
+                f1_score(all_labels, all_preds, average="macro") * 100
+            )
+            if num_classes == 2:
+                all_probs = flatten(all_probs)
+                epoch_stats["AUC"] = roc_auc_score(all_labels, all_probs) * 100
+            else:
+                all_probs = flatten_multi(all_probs)
+                epoch_stats["AUC"] = (
+                    roc_auc_score(
+                        all_labels, all_probs, average="macro", multi_class="ovo"
+                    )
+                    * 100
+                )
 
             if phase == "train":
-                epoch_stats = {}
-                epoch_stats["loss"] = running_loss / dataset_sizes[phase]
-                epoch_stats["accuracy"] = accuracy_score(all_labels, all_preds) * 100
-                epoch_stats["F1_Mac"] = (
-                    f1_score(all_labels, all_preds, average="macro") * 100
-                )
-                if num_classes == 2:
-                    all_probs = flatten(all_probs)
-                    epoch_stats["AUC"] = roc_auc_score(all_labels, all_probs) * 100
-                else:
-                    all_probs = flatten_multi(all_probs)
-                    epoch_stats["AUC"] = (
-                        roc_auc_score(
-                            all_labels, all_probs, average="macro", multi_class="ovo"
-                        )
-                        * 100
-                    )
-
-                if epoch == 0:
+                if epoch == 1:
                     train_metrics_df = pd.DataFrame([epoch_stats])
                 else:
                     train_metrics_df = pd.concat(
@@ -204,19 +199,7 @@ def train_model(
                     index=False,
                 )
             else:
-                epoch_stats, _ = eval_model(
-                    model,
-                    dataloaders,
-                    dataset_sizes,
-                    num_classes,
-                    device,
-                    config["default"]["level"],
-                    model_name,
-                    config,
-                    save_preds=True,
-                )
-                epoch_stats["loss"] = running_loss / dataset_sizes[phase]
-                if epoch == 0:
+                if epoch == 1:
                     val_metrics_df = pd.DataFrame([epoch_stats])
                 else:
                     val_metrics_df = pd.concat(
@@ -240,7 +223,7 @@ def train_model(
                 )
             )
 
-            # Deep copy the model
+            ################################ TOBE FIXED ########################
             if phase == "val" and epoch_stats["F1_Mac"] > best_f1:
                 print("New leading Macro f1-score: {}".format(epoch_stats["F1_Mac"]))
 
@@ -254,8 +237,24 @@ def train_model(
                     "model": model,
                 }
                 best_model = model
+                best_f1 = epoch_stats["F1_Mac"]
                 torch.save(checkpoint, best_model_path)
                 print("Checkpoint saved:", best_model_path)
+            elif phase == "val":
+                model_path = os.path.join(
+                    config["output_folder_path"], f"{model_name}_epoch{epoch}.pth"
+                )
+                # Save checkpoint
+                checkpoint = {
+                    "leading_epoch": epoch,
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
+                    "config": config,
+                    "leading_val_metrics": epoch_stats,
+                    "model": model,
+                }
+                best_model = model
+                torch.save(checkpoint, model_path)
 
         time_elapsed_epoch = time.time() - since_epoch
         print(
@@ -322,7 +321,7 @@ def main(config):
     model = deit_small_patch16_224(
         pretrained=config["default"]["pretrained"],
         num_classes=num_classes,
-        add_hook=False,
+        add_hook=True,
         need_ig=False,
     )
     model = model.to(device)

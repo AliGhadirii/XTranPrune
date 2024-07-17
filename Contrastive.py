@@ -501,6 +501,14 @@ def main(config, args):
     )
     model = model.eval().to(device)
 
+    tmp = deit_small_patch16_224(
+        num_classes=main_num_classes,
+        add_hook=True,
+        need_ig=True if config["prune"]["cont_method"] == "AttrRoll" else False,
+        weight_path="/home/ali/Outputs/Fitzpatrick17k/XTranPrune_baseline_High/DiT_S_LRP_level=high_checkpoint_BASE.pth",
+    )
+    tmp = tmp.eval().to(device)
+
     val_metrics, _ = eval_model(
         model,
         val_dataloaders,
