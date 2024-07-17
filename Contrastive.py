@@ -56,8 +56,8 @@ def Contrastive(
             batch = next(DL_iter)
 
         inputs = batch["image"].to(device)
-        main_labels = batch[config["prune"]["main_level"]].to(device)
-        SA_labels = batch[config["prune"]["SA_level"]].to(device)
+        main_labels = batch[config["train"]["main_level"]].to(device)
+        SA_labels = batch[config["train"]["SA_level"]].to(device)
 
         S0_inputs = inputs[SA_labels == 0]
         S0_labels = main_labels[SA_labels == 0]
@@ -469,11 +469,11 @@ def main(config, args):
     dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
-        sampler_type=config["default"]["sampler_type"],
+        sampler_type=config["train"]["sampler_type"],
         dataset_name=config["dataset_name"],
-        stratify_cols=config["default"]["stratify_cols"],
-        main_level=config["prune"]["main_level"],
-        SA_level=config["prune"]["SA_level"],
+        stratify_cols=config["train"]["stratify_cols"],
+        main_level=config["train"]["main_level"],
+        SA_level=config["train"]["SA_level"],
         batch_size=config["prune"]["batch_size"],
         num_workers=1,
     )
@@ -485,9 +485,9 @@ def main(config, args):
             sampler_type="WeightedRandom",
             dataset_name=config["dataset_name"],
             stratify_cols=["low"],
-            main_level=config["prune"]["main_level"],
-            SA_level=config["prune"]["SA_level"],
-            batch_size=config["default"]["batch_size"],
+            main_level=config["train"]["main_level"],
+            SA_level=config["train"]["SA_level"],
+            batch_size=config["train"]["batch_size"],
             num_workers=1,
         )
     )
@@ -501,21 +501,13 @@ def main(config, args):
     )
     model = model.eval().to(device)
 
-    tmp = deit_small_patch16_224(
-        num_classes=main_num_classes,
-        add_hook=True,
-        need_ig=True if config["prune"]["cont_method"] == "AttrRoll" else False,
-        weight_path="/home/ali/Outputs/Fitzpatrick17k/XTranPrune_baseline_High/DiT_S_LRP_level=high_checkpoint_BASE.pth",
-    )
-    tmp = tmp.eval().to(device)
-
     val_metrics, _ = eval_model(
         model,
         val_dataloaders,
         val_dataset_sizes,
         val_main_num_classes,
         device,
-        config["prune"]["main_level"],
+        config["train"]["main_level"],
         "DeiT_S_LRP_PIter0",
         config,
         save_preds=True,
@@ -576,7 +568,7 @@ def main(config, args):
             val_dataset_sizes,
             val_main_num_classes,
             device,
-            config["prune"]["main_level"],
+            config["train"]["main_level"],
             model_name,
             config,
             save_preds=True,

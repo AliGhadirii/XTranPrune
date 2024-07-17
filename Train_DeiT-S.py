@@ -24,7 +24,7 @@ from Models.ViT_LRP import deit_small_patch16_224
 from Utils.Misc_utils import set_seeds, LinearWarmup, Logger
 from Utils.transformers_utils import get_params_groups
 from Utils.Metrics import find_threshold, plot_metrics_training
-from Evaluation import eval_model
+from Evaluation import eval_model, eval_model_SABranch
 
 import warnings
 from sklearn.exceptions import UndefinedMetricWarning
@@ -81,7 +81,7 @@ def train_model(
         best_f1 = leading_val_metrics["F1_Mac"]
         return model
 
-    for epoch in range(start_epoch, config["default"]["n_epochs"]):
+    for epoch in range(start_epoch, config["train"]["n_epochs"]):
         since_epoch = time.time()
 
         # Each epoch has a training and validation phase
@@ -104,12 +104,12 @@ def train_model(
                 enumerate(dataloaders[phase]),
                 total=len(dataloaders[phase]),
                 desc="Phase {} | Epoch {}/{}".format(
-                    phase, epoch, config["default"]["n_epochs"]
+                    phase, epoch, config["train"]["n_epochs"]
                 ),
             ):
 
                 inputs = batch["image"].to(device)
-                labels = batch[config["default"]["level"]]
+                labels = batch[config["train"]["main_level"]]
 
                 if num_classes == 2:
                     labels = (
@@ -307,19 +307,22 @@ def main(config):
 
     model_name = f"DiT_S_level={config['default']['level']}"
 
-    dataloaders, dataset_sizes, num_classes, _ = get_dataloaders(
+    dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
         sampler_type="WeightedRandom",
         stratify_cols=["low"],
         dataset_name=config["dataset_name"],
-        main_level=config["default"]["level"],
-        batch_size=config["default"]["batch_size"],
+        main_level=config["train"]["main_level"],
+        SA_level=config["train"]["SA_level"],
+        batch_size=config["train"]["batch_size"],
         num_workers=1,
     )
-
+    num_classes = (
+        main_num_classes if config["train"]["branch"] == "main" else SA_num_classes
+    )
     model = deit_small_patch16_224(
-        pretrained=config["default"]["pretrained"],
+        pretrained=config["train"]["pretrained"],
         num_classes=num_classes,
         add_hook=True,
         need_ig=False,
@@ -355,17 +358,30 @@ def main(config):
         config,
     )
 
-    val_metrics, _ = eval_model(
-        best_model,
-        dataloaders,
-        dataset_sizes,
-        num_classes,
-        device,
-        config["default"]["level"],
-        model_name,
-        config,
-        save_preds=True,
-    )
+    if config["train"]["branch"] == "main":
+        val_metrics, _ = eval_model(
+            model=best_model,
+            dataloaders=dataloaders,
+            dataset_sizes=dataset_sizes,
+            num_classes=num_classes,
+            device=device,
+            level=config["train"]["main_level"],
+            model_type=model_name,
+            config=config,
+            save_preds=True,
+        )
+    elif config["train"]["branch"] == "SA":
+        val_metrics, _ = eval_model_SABranch(
+            model=best_model,
+            dataloaders=dataloaders,
+            dataset_sizes=dataset_sizes,
+            device=device,
+            model_type=model_name,
+            config=config,
+            save_preds=True,
+        )
+    else:
+        raise ValueError("Invalid branch type")
 
     print("Best validation metrics:")
     pprint(val_metrics)

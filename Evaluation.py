@@ -202,7 +202,7 @@ def eval_model_SABranch(
             fitzpatrick_binary_list.append(fitzpatrick_binary.cpu().tolist())
             hasher_list.append(hasher)
 
-            if config["default"]["level"] == "gender":
+            if config["train"]["SA_level"] == "gender":
                 gender = batch["gender"]
                 gender = torch.from_numpy(np.asarray(gender)).unsqueeze(1).to(device)
                 gender_list.append(gender.cpu().tolist())
@@ -211,7 +211,7 @@ def eval_model_SABranch(
 
             probs = torch.nn.functional.sigmoid(outputs)
 
-            if config["default"]["level"] == "gender":
+            if config["train"]["SA_level"] == "gender":
                 theshold = find_threshold(
                     probs.cpu().data.numpy(), gender.cpu().data.numpy()
                 )
@@ -234,7 +234,7 @@ def eval_model_SABranch(
             return flatten(list_of_lists[0]) + flatten(list_of_lists[1:])
         return list_of_lists[:1] + flatten(list_of_lists[1:])
 
-    if config["default"]["level"] == "gender":
+    if config["train"]["SA_level"] == "gender":
         df_preds = pd.DataFrame(
             {
                 "hasher": flatten(hasher_list),
@@ -266,7 +266,7 @@ def eval_model_SABranch(
             index=False,
         )
 
-    y_true = df_preds[config["default"]["level"]].values
+    y_true = df_preds[config["train"]["SA_level"]].values
     y_pred = df_preds["prediction"].values
 
     accuracy = accuracy_score(y_true, y_pred)
@@ -311,9 +311,9 @@ if __name__ == "__main__":
         sampler_type="WeightedRandom",
         dataset_name=config["dataset_name"],
         stratify_cols=["low"],
-        main_level=config["prune"]["main_level"],
-        SA_level=config["prune"]["SA_level"],
-        batch_size=config["default"]["batch_size"],
+        main_level=config["train"]["main_level"],
+        SA_level=config["train"]["SA_level"],
+        batch_size=config["train"]["batch_size"],
         num_workers=1,
     )
 
@@ -330,7 +330,7 @@ if __name__ == "__main__":
         dataset_sizes,
         main_num_classes,
         device,
-        config["prune"]["main_level"],
+        config["train"]["main_level"],
         "main model",
         config,
         save_preds=True,
