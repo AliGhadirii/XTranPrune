@@ -305,7 +305,7 @@ def main(config):
 
     set_seeds(config["seed"])
 
-    model_name = f"DiT_S_level={config['default']['level']}"
+    model_name = f"DiT_S_level={config['train']['main_level']}"
 
     dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
