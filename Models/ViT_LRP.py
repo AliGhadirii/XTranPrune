@@ -144,14 +144,21 @@ class Attention(nn.Module):
     def get_attn_gradients(self):
         return self.attn_gradients
 
-    def set_attn_pruning_mask(self, mask):
+    def set_attn_pruning_mask(self, mask, method="AND"):
         if self.attn_pruning_mask is None:
             self.attn_pruning_mask = mask
         else:
             assert (
                 self.attn_pruning_mask.shape == mask.shape
             ), "Attention class set_attn_pruning_mask(): The shape of the mask is not correct."
-            self.attn_pruning_mask = self.attn_pruning_mask * mask
+            assert method in [
+                "AND",
+                "LAST",
+            ], "Invalid method for mask generation. Choose from ['AND', 'LAST'.]"
+            if method == "AND":
+                self.attn_pruning_mask = self.attn_pruning_mask * mask
+            elif method == "LAST":
+                self.attn_pruning_mask = mask
 
     def get_attn_pruning_mask(self):
         return self.attn_pruning_mask
@@ -403,6 +410,9 @@ class VisionTransformer(nn.Module):
         self.ig = None
         self.gradients = None
 
+    def set_add_hook(self):
+        self.add_hook = True
+
     def save_inp_grad(self, grad):
         self.inp_grad = grad
 
@@ -422,12 +432,12 @@ class VisionTransformer(nn.Module):
     def no_weight_decay(self):
         return {"pos_embed", "cls_token"}
 
-    def set_attn_pruning_mask(self, mask):
+    def set_attn_pruning_mask(self, mask, method="AND"):
         assert (
             mask.shape[0] == self.depth
         ), "ERROR: Mask shape doesn't match the depth of the model."
         for i in range(self.depth):
-            self.blocks[i].attn.set_attn_pruning_mask(mask[i])
+            self.blocks[i].attn.set_attn_pruning_mask(mask[i], method=method)
 
     def get_attn_pruning_mask(self):
         attn_pruning_mask = []
@@ -709,6 +719,8 @@ def deit_small_patch16_224(
         checkpoint = torch.load(weight_path)
         if "model" in checkpoint:
             model = checkpoint["model"]
+            if model.add_hook == False and add_hook:
+                model.set_add_hook()
             print(f"The whole model object loaded from {weight_path}")
         elif "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])

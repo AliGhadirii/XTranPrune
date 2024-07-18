@@ -3,10 +3,8 @@ Outputs/
 __pycache__/
 .ipynb_checkpoints/
 Run_on_NCI.sh.*
-experiment_run.py
-Ablation*.py
+Ablation/
 paths.txt
 .vscode/
 Configs/configs_tmp.yml
-Ablation/
 Notebooks/FairME_metrics.py

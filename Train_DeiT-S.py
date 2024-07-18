@@ -4,6 +4,8 @@ import time
 import os
 import sys
 import shutil
+from pprint import pprint
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -11,17 +13,37 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import copy
-from sklearn.metrics import balanced_accuracy_score
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    roc_auc_score,
+)
 
 from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
 from Utils.Misc_utils import set_seeds, LinearWarmup, Logger
 from Utils.transformers_utils import get_params_groups
-from Utils.Metrics import find_threshold
-from Evaluation import eval_model
+from Utils.Metrics import find_threshold, plot_metrics_training
+from Evaluation import eval_model, eval_model_SABranch
 
 import warnings
 from sklearn.exceptions import UndefinedMetricWarning
+
+
+def flatten(list_of_lists):
+    if len(list_of_lists) == 0:
+        return list_of_lists
+    if isinstance(list_of_lists[0], list):
+        return flatten(list_of_lists[0]) + flatten(list_of_lists[1:])
+    return list_of_lists[:1] + flatten(list_of_lists[1:])
+
+
+def flatten_multi(list_of_lists):
+    flattened_list = []
+    for sublist in list_of_lists:
+        for item in sublist:
+            flattened_list.append(item)
+    return flattened_list
 
 
 def train_model(
@@ -38,31 +60,28 @@ def train_model(
 ):
     since = time.time()
 
-    training_results = []
-    validation_results = []
-    start_epoch = 0
-    best_acc = 0
+    start_epoch = 1
+    best_f1 = 0
+    best_model = None
 
     best_model_path = os.path.join(
-        config["output_folder_path"], f"{model_name}_checkpoint_BASE.pth"
+        config["output_folder_path"], f"{model_name}_BEST.pth"
     )
 
     if os.path.isfile(best_model_path):
         print("Resuming training from:", best_model_path)
         checkpoint = torch.load(best_model_path)
-        model.load_state_dict(checkpoint["model_state_dict"])
+
+        model = checkpoint["model"]
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        best_loss = checkpoint["best_loss"]
-        best_acc = checkpoint["best_acc"]
-        best_balanced_acc = checkpoint["best_balanced_acc"]
+        leading_val_metrics = checkpoint["leading_val_metrics"]
         leading_epoch = checkpoint["leading_epoch"]
         start_epoch = leading_epoch + 1
+        best_f1 = leading_val_metrics["F1_Mac"]
+        return model
 
-    for epoch in range(start_epoch, config["default"]["n_epochs"]):
-        print("Epoch {}/{}".format(epoch, config["default"]["n_epochs"] - 1))
-        print("-" * 20)
-
+    for epoch in range(start_epoch, config["train"]["n_epochs"]):
         since_epoch = time.time()
 
         # Each epoch has a training and validation phase
@@ -70,23 +89,27 @@ def train_model(
             # Set the model to the training mode
             if phase == "train":
                 model.train()
-
             # Set model to the evaluation mode
             else:
                 model.eval()
 
             # Running parameters
-            running_loss = 0.0
-            running_corrects = 0
-            running_balanced_acc_sum = 0
-            cnt = 0
 
-            print(f"Current phase: {phase}")
-            # Iterate over data
-            for idx, batch in enumerate(dataloaders[phase]):
-                # Send inputs and labels to the device
+            running_loss = 0.0
+            all_preds = []
+            all_labels = []
+            all_probs = []
+
+            for idx, batch in tqdm(
+                enumerate(dataloaders[phase]),
+                total=len(dataloaders[phase]),
+                desc="Phase {} | Epoch {}/{}".format(
+                    phase, epoch, config["train"]["n_epochs"]
+                ),
+            ):
+
                 inputs = batch["image"].to(device)
-                labels = batch[config["default"]["level"]]
+                labels = batch[config["train"]["main_level"]]
 
                 if num_classes == 2:
                     labels = (
@@ -125,7 +148,8 @@ def train_model(
 
                         loss = criterion(outputs, labels.to(torch.float32))
                     else:
-                        probs, preds = torch.max(outputs, 1)
+                        probs = torch.nn.functional.softmax(outputs, dim=1)
+                        logits, preds = torch.max(outputs, 1)
 
                         loss = criterion(outputs, labels)
 
@@ -136,60 +160,101 @@ def train_model(
 
                 # Statistics
                 running_loss += loss.item() * inputs.size(0)
-                running_corrects += torch.sum(preds == labels.data)
-                running_balanced_acc_sum += balanced_accuracy_score(
-                    labels.data.cpu(), preds.cpu()
-                ) * inputs.size(0)
-
-                # Increment
-                cnt = cnt + 1
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+                all_probs.append(probs.cpu().tolist())
 
             if phase == "train":
                 scheduler.step()
 
             # metrics
-            epoch_loss = running_loss / dataset_sizes[phase]
-            epoch_acc = running_corrects / dataset_sizes[phase]
-            epoch_balanced_acc = running_balanced_acc_sum / dataset_sizes[phase]
+            epoch_stats = {}
+            epoch_stats["loss"] = running_loss / dataset_sizes[phase]
+            epoch_stats["accuracy"] = accuracy_score(all_labels, all_preds) * 100
+            epoch_stats["F1_Mac"] = (
+                f1_score(all_labels, all_preds, average="macro") * 100
+            )
+            if num_classes == 2:
+                all_probs = flatten(all_probs)
+                epoch_stats["AUC"] = roc_auc_score(all_labels, all_probs) * 100
+            else:
+                all_probs = flatten_multi(all_probs)
+                epoch_stats["AUC"] = (
+                    roc_auc_score(
+                        all_labels, all_probs, average="macro", multi_class="ovo"
+                    )
+                    * 100
+                )
+
+            if phase == "train":
+                if epoch == 1:
+                    train_metrics_df = pd.DataFrame([epoch_stats])
+                else:
+                    train_metrics_df = pd.concat(
+                        [train_metrics_df, pd.DataFrame([epoch_stats])],
+                        ignore_index=True,
+                    )
+                train_metrics_df.to_csv(
+                    os.path.join(config["output_folder_path"], f"Train_metrics.csv"),
+                    index=False,
+                )
+            else:
+                if epoch == 1:
+                    val_metrics_df = pd.DataFrame([epoch_stats])
+                else:
+                    val_metrics_df = pd.concat(
+                        [val_metrics_df, pd.DataFrame([epoch_stats])], ignore_index=True
+                    )
+                val_metrics_df.to_csv(
+                    os.path.join(
+                        config["output_folder_path"], f"Validation_metrics.csv"
+                    ),
+                    index=False,
+                )
 
             # Print
             print(
-                "{} Loss: {:.4f} Acc: {:.4f} Balanced Accuracy: {:.4f} ".format(
-                    phase, epoch_loss, epoch_acc, epoch_balanced_acc
+                "{} Loss: {:.4f} Acc: {:.4f} Macro f1-score: {:.4f} AUC: {:.4f}".format(
+                    phase,
+                    epoch_stats["loss"],
+                    epoch_stats["accuracy"],
+                    epoch_stats["F1_Mac"],
+                    epoch_stats["AUC"],
                 )
             )
 
-            # Save the accuracy and loss
-            if phase == "train":
-                training_results.append(
-                    [phase, epoch, epoch_loss, epoch_acc.item(), epoch_balanced_acc]
-                )
-            elif phase == "val":
-                validation_results.append(
-                    [phase, epoch, epoch_loss, epoch_acc.item(), epoch_balanced_acc]
-                )
-
-            # Deep copy the model
-            if phase == "val" and epoch_acc > best_acc:
-                print("New leading accuracy: {}".format(epoch_acc))
-                best_loss = epoch_loss
-                best_acc = epoch_acc
-                best_balanced_acc = epoch_balanced_acc
-                best_model_wts = copy.deepcopy(model.state_dict())
+            ################################ TOBE FIXED ########################
+            if phase == "val" and epoch_stats["F1_Mac"] > best_f1:
+                print("New leading Macro f1-score: {}".format(epoch_stats["F1_Mac"]))
 
                 # Save checkpoint
                 checkpoint = {
                     "leading_epoch": epoch,
-                    "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                     "scheduler_state_dict": scheduler.state_dict(),
-                    "best_loss": best_loss,
-                    "best_acc": best_acc,
-                    "best_balanced_acc": best_balanced_acc,
                     "config": config,
+                    "leading_val_metrics": epoch_stats,
+                    "model": model,
                 }
+                best_model = model
+                best_f1 = epoch_stats["F1_Mac"]
                 torch.save(checkpoint, best_model_path)
                 print("Checkpoint saved:", best_model_path)
+            elif phase == "val":
+                model_path = os.path.join(
+                    config["output_folder_path"], f"{model_name}_epoch{epoch}.pth"
+                )
+                # Save checkpoint
+                checkpoint = {
+                    "leading_epoch": epoch,
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
+                    "config": config,
+                    "leading_val_metrics": epoch_stats,
+                    "model": model,
+                }
+                best_model = model
+                torch.save(checkpoint, model_path)
 
         time_elapsed_epoch = time.time() - since_epoch
         print(
@@ -198,6 +263,17 @@ def train_model(
             )
         )
 
+        plot_metrics_training(
+            train_metrics_df, val_metrics_df, ["loss"], "loss", config
+        )
+        plot_metrics_training(
+            train_metrics_df, val_metrics_df, ["F1_Mac"], "F1", config
+        )
+        plot_metrics_training(
+            train_metrics_df, val_metrics_df, ["accuracy"], "accuracy", config
+        )
+        plot_metrics_training(train_metrics_df, val_metrics_df, ["AUC"], "AUC", config)
+
     # Time
     time_elapsed = time.time() - since
     print(
@@ -205,32 +281,8 @@ def train_model(
             time_elapsed // 60, time_elapsed % 60
         )
     )
-    print("Best val Loss: {:4f}".format(best_loss))
-    print("Best val Acc: {:4f}".format(best_acc))
-    print("Best val Balanced Acc: {:4f}".format(best_balanced_acc))
 
-    # Load the best model weights
-    model.load_state_dict(best_model_wts)
-
-    training_results = pd.DataFrame(training_results)
-    training_results.columns = [
-        "phase",
-        "epoch",
-        "loss",
-        "accuracy",
-        "balanced_accuracy",
-    ]
-
-    validation_results = pd.DataFrame(validation_results)
-    validation_results.columns = [
-        "phase",
-        "epoch",
-        "loss",
-        "accuracy",
-        "balanced_accuracy",
-    ]
-
-    return model, training_results, validation_results
+    return best_model
 
 
 def main(config):
@@ -242,23 +294,38 @@ def main(config):
     print("Starting... \n")
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    set_seeds(config["seed"])
+    print("Configs:")
+    pprint(config)
+    print()
 
-    model_name = f"DiT_S_LRP_level={config['default']['level']}"
-
-    dataloaders, dataset_sizes, num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        dataset_name=config["dataset_name"],
-        level=config["default"]["level"],
-        batch_size=config["default"]["batch_size"],
-        num_workers=1,
+    shutil.copy(
+        args.config,
+        os.path.join(config["output_folder_path"], "configs.yml"),
     )
 
+    set_seeds(config["seed"])
+
+    model_name = f"DiT_S_level={config['train']['main_level']}"
+
+    dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
+        root_image_dir=config["root_image_dir"],
+        Generated_csv_path=config["Generated_csv_path"],
+        sampler_type="WeightedRandom",
+        stratify_cols=["low"],
+        dataset_name=config["dataset_name"],
+        main_level=config["train"]["main_level"],
+        SA_level=config["train"]["SA_level"],
+        batch_size=config["train"]["batch_size"],
+        num_workers=1,
+    )
+    num_classes = (
+        main_num_classes if config["train"]["branch"] == "main" else SA_num_classes
+    )
     model = deit_small_patch16_224(
-        pretrained=config["default"]["pretrained"],
+        pretrained=config["train"]["pretrained"],
         num_classes=num_classes,
-        add_hook=False,
+        add_hook=True,
+        need_ig=False,
     )
     model = model.to(device)
     print(model)
@@ -278,74 +345,47 @@ def main(config):
         steps_per_epoch=len(dataloaders["train"]),
     )
 
-    if config["default"]["mode"] == "eval":
-        best_model_path = os.path.join(
-            config["output_folder_path"], f"{model_name}_checkpoint_BASE.pth"
-        )
-        print("EVAL MODE: Loading the weights from ", best_model_path)
-
-        checkpoint = torch.load(best_model_path)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        best_loss = checkpoint["best_loss"]
-        best_acc = checkpoint["best_acc"]
-        best_balanced_acc = checkpoint["best_balanced_acc"]
-        leading_epoch = checkpoint["leading_epoch"]
-
-        print(
-            "Best epoch {}: Loss: {:.4f} Acc: {:.4f} Balanced Accuracy: {:.4f} ".format(
-                leading_epoch, best_loss, best_acc, best_balanced_acc
-            )
-        )
-    else:
-        shutil.copy(
-            "Configs/configs_server.yml",
-            os.path.join(config["output_folder_path"], "configs.yml"),
-        )
-
-        model, training_results, validation_results = train_model(
-            dataloaders,
-            dataset_sizes,
-            num_classes,
-            model,
-            criterion,
-            optimizer,
-            scheduler,
-            device,
-            model_name,
-            config,
-        )
-
-        training_results.to_csv(
-            os.path.join(
-                config["output_folder_path"],
-                f"Training_log_{model_name}_random_holdout.csv",
-            ),
-            index=False,
-        )
-        validation_results.to_csv(
-            os.path.join(
-                config["output_folder_path"],
-                f"Validation_log_{model_name}_random_holdout.csv",
-            ),
-            index=False,
-        )
-
-    val_metrics, _ = eval_model(
-        model,
+    best_model = train_model(
         dataloaders,
         dataset_sizes,
         num_classes,
+        model,
+        criterion,
+        optimizer,
+        scheduler,
         device,
-        config["default"]["level"],
         model_name,
         config,
-        save_preds=True,
     )
 
-    print("validation metrics:")
-    print(val_metrics)
+    if config["train"]["branch"] == "main":
+        val_metrics, _ = eval_model(
+            model=best_model,
+            dataloaders=dataloaders,
+            dataset_sizes=dataset_sizes,
+            num_classes=num_classes,
+            device=device,
+            level=config["train"]["main_level"],
+            model_type=model_name,
+            config=config,
+            save_preds=True,
+        )
+    elif config["train"]["branch"] == "SA":
+        val_metrics, _ = eval_model_SABranch(
+            model=best_model,
+            dataloaders=dataloaders,
+            dataset_sizes=dataset_sizes,
+            device=device,
+            model_type=model_name,
+            config=config,
+            save_preds=True,
+        )
+    else:
+        raise ValueError("Invalid branch type")
+
+    print("Best validation metrics:")
+    pprint(val_metrics)
+    print()
 
 
 if __name__ == "__main__":

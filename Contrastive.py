@@ -6,6 +6,7 @@ from tqdm import tqdm
 import pandas as pd
 import shutil
 import sys
+from pprint import pprint
 
 import torch
 
@@ -19,18 +20,14 @@ from Evaluation import eval_model
 
 def Contrastive(
     model,
-    dataloaders,
-    S0_dataloaders,
-    S1_dataloaders,
+    dataloader,
     device,
     config,
     prun_iter_cnt,
     verbose=2,
     MA_vectors=None,
 ):
-    DL_iter = iter(dataloaders)
-    S0_iter = iter(S0_dataloaders)
-    S1_iter = iter(S1_dataloaders)
+    DL_iter = iter(dataloader)
 
     explainer = Explainer(model)
 
@@ -52,25 +49,70 @@ def Contrastive(
         total=config["prune"]["num_batch_per_iter"],
         desc="Generating masks",
     ):
-        batch = next(DL_iter)
+        try:
+            batch = next(DL_iter)
+        except StopIteration:
+            DL_iter = iter(dataloader)
+            batch = next(DL_iter)
+
         inputs = batch["image"].to(device)
-        labels = batch[config["prune"]["main_level"]].to(device)
+        main_labels = batch[config["train"]["main_level"]].to(device)
+        SA_labels = batch[config["train"]["SA_level"]].to(device)
 
-        S0_batch = next(S0_iter)
-        S0_inputs = S0_batch["image"].to(device)
-        S0_labels = S0_batch[config["prune"]["main_level"]].to(device)
+        S0_inputs = inputs[SA_labels == 0]
+        S0_labels = main_labels[SA_labels == 0]
 
-        S1_batch = next(S1_iter)
-        S1_inputs = S1_batch["image"].to(device)
-        S1_labels = S1_batch[config["prune"]["SA_level"]].to(device)
+        S1_inputs = inputs[SA_labels == 1]
+        S1_labels = main_labels[SA_labels == 1]
 
         blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
-        S0_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
-        S1_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
 
         for i in range(config["prune"]["batch_size"]):  # iterate over batch size
             if config["prune"]["cont_method"] == "attn":
                 blk_attrs_input = explainer.generate_attn(input=inputs[i].unsqueeze(0))
+            elif config["prune"]["cont_method"] == "TranInter":
+                _, blk_attrs_input = explainer.generate_TranInter(
+                    input=inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                )
+            elif config["prune"]["cont_method"] == "TAM":
+                _, blk_attrs_input = explainer.generate_TAM(
+                    input=inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                    start_layer=0,
+                    steps=10,
+                )
+                blk_attrs_input = blk_attrs_input.squeeze(0)
+            elif config["prune"]["cont_method"] == "AttrRoll":
+                _, blk_attrs_input = explainer.generate_AttrRoll(
+                    input=inputs[i].unsqueeze(0), index=main_labels[i]
+                )
+            elif config["prune"]["cont_method"] == "FTaylor":
+                blk_attrs_input = explainer.generate_FTaylor(
+                    input=inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                )
+            elif config["prune"]["cont_method"] == "FTaylorpow2":
+                blk_attrs_input = explainer.generate_FTaylorpow2(
+                    input=inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                )
+            else:
+                _, blk_attrs_input = explainer.generate_LRP(
+                    input=inputs[i].unsqueeze(0),
+                    index=main_labels[i],
+                    method=config["prune"]["cont_method"],
+                )
+
+            blk_attrs_batch = blk_attrs_batch + blk_attrs_input.detach()
+            blk_attrs_input = None
+
+        S0_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
+        S1_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
+        SA_batch_size = config["prune"]["batch_size"] // 2
+
+        for i in range(SA_batch_size):  # iterate over SA batch
+            if config["prune"]["cont_method"] == "attn":
                 S0_blk_attrs_input = explainer.generate_attn(
                     input=S0_inputs[i].unsqueeze(0)
                 )
@@ -78,10 +120,6 @@ def Contrastive(
                     input=S1_inputs[i].unsqueeze(0)
                 )
             elif config["prune"]["cont_method"] == "TranInter":
-                _, blk_attrs_input = explainer.generate_TranInter(
-                    input=inputs[i].unsqueeze(0),
-                    index=labels[i],
-                )
                 _, S0_blk_attrs_input = explainer.generate_TranInter(
                     input=S0_inputs[i].unsqueeze(0),
                     index=S0_labels[i],
@@ -90,14 +128,7 @@ def Contrastive(
                     input=S1_inputs[i].unsqueeze(0),
                     index=S1_labels[i],
                 )
-
             elif config["prune"]["cont_method"] == "TAM":
-                _, blk_attrs_input = explainer.generate_TAM(
-                    input=inputs[i].unsqueeze(0),
-                    index=labels[i],
-                    start_layer=0,
-                    steps=10,
-                )
                 _, S0_blk_attrs_input = explainer.generate_TAM(
                     input=S0_inputs[i].unsqueeze(0),
                     index=S0_labels[i],
@@ -110,13 +141,9 @@ def Contrastive(
                     start_layer=0,
                     steps=10,
                 )
-                blk_attrs_input = blk_attrs_input.squeeze(0)
                 S0_blk_attrs_input = S0_blk_attrs_input.squeeze(0)
                 S1_blk_attrs_input = S1_blk_attrs_input.squeeze(0)
             elif config["prune"]["cont_method"] == "AttrRoll":
-                _, blk_attrs_input = explainer.generate_AttrRoll(
-                    input=inputs[i].unsqueeze(0), index=labels[i]
-                )
                 _, S0_blk_attrs_input = explainer.generate_AttrRoll(
                     input=S0_inputs[i].unsqueeze(0), index=S0_labels[i]
                 )
@@ -124,10 +151,6 @@ def Contrastive(
                     input=S1_inputs[i].unsqueeze(0), index=S1_labels[i]
                 )
             elif config["prune"]["cont_method"] == "FTaylor":
-                blk_attrs_input = explainer.generate_FTaylor(
-                    input=inputs[i].unsqueeze(0),
-                    index=labels[i],
-                )
                 S0_blk_attrs_input = explainer.generate_FTaylor(
                     input=S0_inputs[i].unsqueeze(0),
                     index=S0_labels[i],
@@ -137,10 +160,6 @@ def Contrastive(
                     index=S1_labels[i],
                 )
             elif config["prune"]["cont_method"] == "FTaylorpow2":
-                blk_attrs_input = explainer.generate_FTaylorpow2(
-                    input=inputs[i].unsqueeze(0),
-                    index=labels[i],
-                )
                 S0_blk_attrs_input = explainer.generate_FTaylorpow2(
                     input=S0_inputs[i].unsqueeze(0),
                     index=S0_labels[i],
@@ -150,11 +169,6 @@ def Contrastive(
                     index=S1_labels[i],
                 )
             else:
-                _, blk_attrs_input = explainer.generate_LRP(
-                    input=inputs[i].unsqueeze(0),
-                    index=labels[i],
-                    method=config["prune"]["cont_method"],
-                )
                 _, S0_blk_attrs_input = explainer.generate_LRP(
                     input=S0_inputs[i].unsqueeze(0),
                     index=S0_labels[i],
@@ -166,11 +180,9 @@ def Contrastive(
                     method=config["prune"]["cont_method"],
                 )
 
-            blk_attrs_batch = blk_attrs_batch + blk_attrs_input.detach()
             S0_blk_attrs_batch = S0_blk_attrs_batch + S0_blk_attrs_input.detach()
             S1_blk_attrs_batch = S1_blk_attrs_batch + S1_blk_attrs_input.detach()
 
-            blk_attrs_input = None
             S0_blk_attrs_input = None
             S1_blk_attrs_input = None
 
@@ -227,12 +239,13 @@ def Contrastive(
                 jsd_value = js_divergence(P, Q)
                 jsd[encoder_idx, head_idx] = jsd_value
 
-        disc_blk_attrs_iter = jsd.unsqueeze(-1).unsqueeze(-1) * (
-            S0_blk_attrs_iter - S1_blk_attrs_iter
+        disc_blk_attrs_iter = (
+            jsd.unsqueeze(-1).unsqueeze(-1)
+            * (S0_blk_attrs_iter - S1_blk_attrs_iter).abs()
         )
 
     elif config["prune"]["FObjective"] == "MinDiff":
-        disc_blk_attrs_iter = S0_blk_attrs_iter - S1_blk_attrs_iter
+        disc_blk_attrs_iter = (S0_blk_attrs_iter - S1_blk_attrs_iter).abs()
     else:
         raise ValueError("Invalid FObjective")
 
@@ -312,8 +325,11 @@ def Contrastive(
 
     ###############################  Generating the pruning mask ###############################
 
+    performance_mask = []
     prun_mask = []
+
     for blk_idx in range(blk_attrs_iter_final.shape[0]):
+        performance_mask_blk = []
         prun_mask_blk = []
         for h in range(blk_attrs_iter_final.shape[1]):
 
@@ -324,22 +340,16 @@ def Contrastive(
                 blk_attrs_flt, 1 - config["prune"]["main_mask_retain_rate"]
             )
 
-            performance_mask = (blk_attrs_iter_final[blk_idx][h] < threshold).float()
-            torch.save(
-                performance_mask,
-                os.path.join(
-                    config["output_folder_path"],
-                    "Log_files",
-                    f"performance_mask_Iter={prun_iter_cnt + 1}.pth",
-                ),
-            )
+            performance_mask_blk_head = (
+                blk_attrs_iter_final[blk_idx][h] < threshold
+            ).float()
 
             # Generating the pruning mask from SA branch
-            score = disc_blk_attrs_iter_final[blk_idx][h].abs() * performance_mask
+            score = disc_blk_attrs_iter_final[blk_idx][h] * performance_mask_blk_head
             score_flt = score.flatten()
 
             # Pruning Pruning_rate% of the paramters
-            k = int(config["prune"]["pruning_rate"] * performance_mask.sum())
+            k = int(config["prune"]["pruning_rate"] * performance_mask_blk_head.sum())
 
             top_k_values, top_k_indices = torch.topk(score_flt, k)
             prun_mask_blk_head = torch.ones_like(score_flt)
@@ -348,6 +358,8 @@ def Contrastive(
             prun_mask_blk_head = prun_mask_blk_head.reshape(
                 (blk_attrs_iter_final.shape[2], blk_attrs_iter_final.shape[3])
             )
+
+            performance_mask_blk.append(performance_mask_blk_head)
             prun_mask_blk.append(prun_mask_blk_head)
 
             if verbose == 2:
@@ -356,7 +368,10 @@ def Contrastive(
                     | Rate: {((num_tokens*num_tokens) - prun_mask_blk_head.sum())/(num_tokens*num_tokens)}"
                 )
 
+        performance_mask_blk = torch.stack(performance_mask_blk, dim=0)
         prun_mask_blk = torch.stack(prun_mask_blk, dim=0)
+
+        performance_mask.append(performance_mask_blk)
         prun_mask.append(prun_mask_blk)
         if verbose == 2:
             print(
@@ -364,7 +379,17 @@ def Contrastive(
                 | Rate: {((num_tokens*num_tokens*model.num_heads) - prun_mask_blk.sum())/(num_tokens*num_tokens*model.num_heads)}"
             )
 
+    performance_mask = torch.stack(performance_mask, dim=0)
     prun_mask = torch.stack(prun_mask, dim=0)
+
+    torch.save(
+        performance_mask,
+        os.path.join(
+            config["output_folder_path"],
+            "Log_files",
+            f"performance_mask_Iter={prun_iter_cnt + 1}.pth",
+        ),
+    )
     torch.save(
         prun_mask,
         os.path.join(
@@ -387,24 +412,27 @@ def Contrastive(
 
     prev_mask = model.get_attn_pruning_mask()
 
+    model.set_attn_pruning_mask(prun_mask, config["prune"]["MaskUpdate_Type"])
+
     if verbose > 0 and prev_mask is not None:
-        new_mask = prev_mask * prun_mask
-        num_pruned_prev = (
-            prev_mask.shape[0]
-            * prev_mask.shape[1]
-            * prev_mask.shape[2]
-            * prev_mask.shape[3]
-        ) - prev_mask.sum()
-        num_pruned_new = (
-            new_mask.shape[0]
-            * new_mask.shape[1]
-            * new_mask.shape[2]
-            * new_mask.shape[3]
-        ) - new_mask.sum()
-        print(
-            f"New #pruned_parameters - Previous #pruned_parameters = {num_pruned_new} - {num_pruned_prev} = {num_pruned_new - num_pruned_prev} "
-        )
-    model.set_attn_pruning_mask(prun_mask)
+        new_mask = model.get_attn_pruning_mask()
+        num_total_nodes_pruned = (new_mask == 0).sum()
+        num_new_nodes_pruned = ((new_mask == 0) & (prev_mask == 1)).sum()
+        num_old_nodes_pruned = ((new_mask == 0) & (prev_mask == 0)).sum()
+
+        num_total_nodes_unpruned = (new_mask == 1).sum()
+        num_new_nodes_unpruned = ((new_mask == 1) & (prev_mask == 0)).sum()
+        num_old_nodes_unpruned = ((new_mask == 1) & (prev_mask == 1)).sum()
+
+        print()
+        print("Pruning Statistics:")
+        print(f"Total nodes pruned: {num_total_nodes_pruned.item()}")
+        print(f"New nodes pruned: {num_new_nodes_pruned.item()}")
+        print(f"Old nodes pruned: {num_old_nodes_pruned.item()}")
+
+        print(f"Total nodes unpruned: {num_total_nodes_unpruned.item()}")
+        print(f"New nodes unpruned: {num_new_nodes_unpruned.item()}")
+        print(f"Old nodes unpruned: {num_old_nodes_unpruned.item()}")
 
     return model, MA_vectors
 
@@ -428,7 +456,8 @@ def main(config, args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     print("Pruning configs:")
-    print(config["prune"])
+    pprint(config)
+    print()
 
     shutil.copy(
         args.config,
@@ -437,57 +466,62 @@ def main(config, args):
 
     set_seeds(config["seed"])
 
-    dataloaders, dataset_sizes, num_classes = get_dataloaders(
+    dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
         root_image_dir=config["root_image_dir"],
         Generated_csv_path=config["Generated_csv_path"],
+        sampler_type=config["train"]["sampler_type"],
         dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
+        stratify_cols=config["train"]["stratify_cols"],
+        main_level=config["train"]["main_level"],
+        SA_level=config["train"]["SA_level"],
         batch_size=config["prune"]["batch_size"],
         num_workers=1,
     )
 
-    S0_dataloaders, S0_dataset_sizes, S0_num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
-        batch_size=config["prune"]["batch_size"],
-        fitz_filter=0,
-        num_workers=1,
-    )
-
-    S1_dataloaders, S1_dataset_sizes, S1_num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
-        batch_size=config["prune"]["batch_size"],
-        fitz_filter=1,
-        num_workers=1,
-    )
-
-    val_dataloaders, val_dataset_sizes, val_num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        dataset_name=config["dataset_name"],
-        level=config["prune"]["main_level"],
-        batch_size=config["default"]["batch_size"],
-        num_workers=1,
+    val_dataloaders, val_dataset_sizes, val_main_num_classes, val_SA_num_classes = (
+        get_dataloaders(
+            root_image_dir=config["root_image_dir"],
+            Generated_csv_path=config["Generated_csv_path"],
+            sampler_type="WeightedRandom",
+            dataset_name=config["dataset_name"],
+            stratify_cols=["low"],
+            main_level=config["train"]["main_level"],
+            SA_level=config["train"]["SA_level"],
+            batch_size=config["train"]["batch_size"],
+            num_workers=1,
+        )
     )
 
     # load both models
     model = deit_small_patch16_224(
-        num_classes=S0_num_classes,
+        num_classes=main_num_classes,
         add_hook=True,
         need_ig=True if config["prune"]["cont_method"] == "AttrRoll" else False,
         weight_path=config["prune"]["main_br_path"],
     )
     model = model.eval().to(device)
 
+    val_metrics, _ = eval_model(
+        model,
+        val_dataloaders,
+        val_dataset_sizes,
+        val_main_num_classes,
+        device,
+        config["train"]["main_level"],
+        "DeiT_S_LRP_PIter0",
+        config,
+        save_preds=True,
+    )
+
+    val_metrics_df = pd.DataFrame([val_metrics])
+
+    print("Validation metrics using the original model:")
+    pprint(val_metrics)
+    print()
+
     prun_iter_cnt = 0
     consecutive_no_improvement = 0
     best_bias_metric = config["prune"]["bias_metric_prev"]
-    val_metrics_df = None
 
     blk_attrs_MA = None
     disc_blk_attrs_MA = None
@@ -510,9 +544,7 @@ def main(config, args):
         if prun_iter_cnt == 0:
             pruned_model, MA_vectors = Contrastive(
                 model=model,
-                dataloaders=dataloaders["train"],
-                S0_dataloaders=S0_dataloaders["train"],
-                S1_dataloaders=S1_dataloaders["train"],
+                dataloader=dataloaders["train"],
                 device=device,
                 config=config,
                 prun_iter_cnt=prun_iter_cnt,
@@ -522,9 +554,7 @@ def main(config, args):
         else:
             pruned_model, MA_vectors = Contrastive(
                 model=pruned_model,
-                dataloaders=dataloaders["train"],
-                S0_dataloaders=S0_dataloaders["train"],
-                S1_dataloaders=S1_dataloaders["train"],
+                dataloader=dataloaders["train"],
                 device=device,
                 config=config,
                 prun_iter_cnt=prun_iter_cnt,
@@ -536,9 +566,9 @@ def main(config, args):
             pruned_model,
             val_dataloaders,
             val_dataset_sizes,
-            val_num_classes,
+            val_main_num_classes,
             device,
-            config["prune"]["main_level"],
+            config["train"]["main_level"],
             model_name,
             config,
             save_preds=True,
@@ -584,7 +614,8 @@ def main(config, args):
                 )
                 consecutive_no_improvement += 1
 
-        print(val_metrics)
+        pprint(val_metrics)
+        print()
 
         model_path = os.path.join(
             config["output_folder_path"],
@@ -608,12 +639,10 @@ def main(config, args):
             )
         )
 
-        if prun_iter_cnt == 0:
-            val_metrics_df = pd.DataFrame([val_metrics])
-        else:
-            val_metrics_df = pd.concat(
-                [val_metrics_df, pd.DataFrame([val_metrics])], ignore_index=True
-            )
+        val_metrics_df = pd.concat(
+            [val_metrics_df, pd.DataFrame([val_metrics])], ignore_index=True
+        )
+
         val_metrics_df.to_csv(
             os.path.join(config["output_folder_path"], f"Pruning_metrics.csv"),
             index=False,

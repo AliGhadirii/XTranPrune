@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import _LRScheduler
+from torch.utils.data import Sampler
 import warnings
 
 
@@ -146,3 +147,73 @@ def js_divergence(P, Q, eps=1e-10):
     JSD /= torch.log(torch.tensor(2.0))
 
     return JSD
+
+
+class StratifiedSampler(Sampler):
+    def __init__(self, df):
+        self.df = df
+        self.indices = self._get_balanced_indices()
+
+    def _get_balanced_indices(self):
+        indices = []
+        min_samples = min(self.df.groupby(["high", "fitzpatrick_binary"]).size())
+
+        for _, group in self.df.groupby(["high", "fitzpatrick_binary"]):
+            group_indices = group.index.tolist()
+            sampled_indices = np.random.choice(group_indices, min_samples, replace=True)
+            indices.extend(sampled_indices)
+
+        return indices
+
+    def __iter__(self):
+        np.random.shuffle(self.indices)
+        return iter(self.indices)
+
+    def __len__(self):
+        return len(self.indices)
+
+
+class CustomStratifiedSampler(Sampler):
+    def __init__(self, df, label_col, sensitive_attr_col, batch_size):
+        self.df = df
+        self.label_col = label_col
+        self.sensitive_attr_col = sensitive_attr_col
+        self.batch_size = batch_size
+
+        # Create a dictionary to store indices for each combination of label and sensitive attribute
+        self.combination_indices = {}
+        labels = df[label_col].values
+        sensitive_attributes = df[sensitive_attr_col].values
+        for label in np.unique(labels):
+            for attr in np.unique(sensitive_attributes):
+                key = (label, attr)
+                self.combination_indices[key] = np.where(
+                    (labels == label) & (sensitive_attributes == attr)
+                )[0].tolist()
+
+        self.unused_samples = {
+            key: set(indices) for key, indices in self.combination_indices.items()
+        }
+        self.keys = list(self.combination_indices.keys())
+
+    def __iter__(self):
+        batch = []
+        while True:
+            for key in self.keys:
+                if len(self.unused_samples[key]) > 0:
+                    sample_idx = self.unused_samples[key].pop()
+                else:
+                    sample_idx = np.random.choice(self.combination_indices[key])
+                batch.append(sample_idx)
+                if len(batch) == self.batch_size:
+                    for idx in batch:
+                        yield idx
+                    batch = []
+            if all(len(self.unused_samples[key]) == 0 for key in self.unused_samples):
+                break
+        if batch:
+            for idx in batch:
+                yield idx
+
+    def __len__(self):
+        return len(self.df)
