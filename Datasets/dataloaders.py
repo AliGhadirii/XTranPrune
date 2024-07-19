@@ -42,7 +42,6 @@ def get_dataloaders(
     batch_size=64,
     num_workers=1,
 ):
-    """Returns a dictionary of data loaders for the Fitzpatrick17k dataset, for the training, and validation sets."""
 
     train_df, val_df = train_val_split(Generated_csv_path, stratify_cols=stratify_cols)
 
