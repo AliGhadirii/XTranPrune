@@ -1,7 +1,7 @@
 seed: 42
 root_image_dir: /home/ali/Datasets/Fitz17k/Images/
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
-dataset_name: Fitz17k
+dataset_name: Fitz17k                 # ["Fitz17k", "HIBA", "PAD", "GF3300"]
 output_folder_path: /home/ali/Outputs/Fitzpatrick17k/Pruning/MA_Uncertain/beta=40_NEWDL/
 num_workers: 1
 train:

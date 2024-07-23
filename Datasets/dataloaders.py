@@ -6,8 +6,12 @@ from torch.utils.data.sampler import WeightedRandomSampler
 from torchvision import transforms
 from sklearn.model_selection import train_test_split
 
-from .datasets import SkinDataset, SkinDataset_Tracked
+from .datasets import SkinDataset, EyeDataset
 from Utils.Misc_utils import StratifiedSampler, CustomStratifiedSampler
+
+import torch
+from torchvision.transforms import autoaugment, transforms
+from torchvision.transforms.functional import InterpolationMode
 
 
 def train_val_split(
@@ -38,16 +42,11 @@ def get_dataloaders(
     stratify_cols=["low"],
     main_level="high",
     SA_level="fitzpatrick_binary",
-    fitz_filter=None,
     batch_size=64,
     num_workers=1,
 ):
 
     train_df, val_df = train_val_split(Generated_csv_path, stratify_cols=stratify_cols)
-
-    if fitz_filter is not None:
-        train_df = train_df[train_df["fitzpatrick_binary"] == fitz_filter]
-        val_df = val_df[val_df["fitzpatrick_binary"] == fitz_filter]
 
     dataset_sizes = {"train": train_df.shape[0], "val": val_df.shape[0]}
     print(dataset_sizes)
@@ -56,17 +55,27 @@ def get_dataloaders(
     SA_num_classes = len(list(train_df[SA_level].unique()))
 
     # Transforms
-    original_transform = transforms.Compose(
+    EyeTrainTransform = transforms.Compose(
         [
-            transforms.ToPILImage(),
-            transforms.Resize(size=256),
-            transforms.CenterCrop(size=224),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            transforms.RandomResizedCrop(224, interpolation=InterpolationMode.BILINEAR),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.PILToTensor(),
+            transforms.ConvertImageDtype(torch.float),
+            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ]
     )
 
-    augment_transform = transforms.Compose(
+    EyeValTransform = transforms.Compose(
+        [
+            transforms.Resize(256, interpolation=InterpolationMode.BILINEAR),
+            transforms.CenterCrop(224),
+            transforms.PILToTensor(),
+            transforms.ConvertImageDtype(torch.float),
+            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        ]
+    )
+
+    SkinTrainTransform = transforms.Compose(
         [
             transforms.ToPILImage(),
             transforms.RandomResizedCrop(size=256, scale=(0.8, 1.0)),
@@ -79,71 +88,144 @@ def get_dataloaders(
         ]
     )
 
-    # Initiliaze samplers for imbalanced dataset
-    if sampler_type == "WeightedRandom":
-        print("INFO: Using WeightedRandomSampler\n")
-        class_sample_count = np.array(train_df[main_level].value_counts().sort_index())
-        weight = 1.0 / class_sample_count
-        samples_weight = np.array([weight[t] for t in train_df[main_level]])
-
-        samples_weight = torch.from_numpy(samples_weight)
-        sampler = WeightedRandomSampler(
-            samples_weight.type("torch.DoubleTensor"),
-            len(samples_weight),
-            replacement=True,
-        )
-        transformed_train = SkinDataset(
-            df=train_df,
-            root_dir=root_image_dir,
-            name=dataset_name,
-            transform=augment_transform,
-        )
-
-    elif sampler_type == "Stratified":
-        print("INFO: Using StratifiedSampler\n")
-        sampler = StratifiedSampler(train_df)
-
-        transformed_train = SkinDataset(
-            df=train_df,
-            root_dir=root_image_dir,
-            name=dataset_name,
-            transform=augment_transform,
-        )
-    elif sampler_type == "CustomStratified":
-        print("INFO: Using CustomStratifiedSampler\n")
-        sampler = CustomStratifiedSampler(
-            df=train_df,
-            label_col=main_level,
-            sensitive_attr_col=SA_level,
-            batch_size=batch_size,
-        )
-
-        transformed_train = SkinDataset_Tracked(
-            df=train_df,
-            root_dir=root_image_dir,
-            name=dataset_name,
-            mixed_transforms=True,
-            transform=augment_transform,
-            original_transform=original_transform,
-        )
-
-    else:
-        raise ValueError("Invalid sampler type")
-
-    transformed_val = SkinDataset(
-        df=val_df,
-        root_dir=root_image_dir,
-        name=dataset_name,
-        transform=original_transform,
+    SkinValTransform = transforms.Compose(
+        [
+            transforms.ToPILImage(),
+            transforms.Resize(size=256),
+            transforms.CenterCrop(size=224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
     )
+
+    # Initiliaze samplers for imbalanced dataset
+    if dataset_name in ["Fitz17k", "HIBA", "PAD"]:
+        if sampler_type == "WeightedRandom":
+            print("INFO: Using WeightedRandomSampler\n")
+            class_sample_count = np.array(
+                train_df[main_level].value_counts().sort_index()
+            )
+            weight = 1.0 / class_sample_count
+            samples_weight = np.array([weight[t] for t in train_df[main_level]])
+
+            samples_weight = torch.from_numpy(samples_weight)
+            sampler = WeightedRandomSampler(
+                samples_weight.type("torch.DoubleTensor"),
+                len(samples_weight),
+                replacement=True,
+            )
+            transformed_train = SkinDataset(
+                df=train_df,
+                root_dir=root_image_dir,
+                name=dataset_name,
+                transform=SkinTrainTransform,
+            )
+
+        elif sampler_type == "Stratified":
+            print("INFO: Using StratifiedSampler\n")
+            sampler = StratifiedSampler(train_df)
+
+            transformed_train = SkinDataset(
+                df=train_df,
+                root_dir=root_image_dir,
+                name=dataset_name,
+                transform=SkinTrainTransform,
+            )
+        elif sampler_type == "CustomStratified":
+            print("INFO: Using CustomStratifiedSampler\n")
+            sampler = CustomStratifiedSampler(
+                df=train_df,
+                label_col=main_level,
+                sensitive_attr_col=SA_level,
+                batch_size=batch_size,
+            )
+
+            transformed_train = SkinDataset(
+                df=train_df,
+                root_dir=root_image_dir,
+                name=dataset_name,
+                is_tracked=True,
+                transform=SkinTrainTransform,
+                SimpleTransform=SkinValTransform,
+            )
+
+        else:
+            raise ValueError("Invalid sampler type")
+
+        transformed_val = SkinDataset(
+            df=val_df,
+            root_dir=root_image_dir,
+            name=dataset_name,
+            transform=SkinValTransform,
+        )
+
+    elif dataset_name == "GF3300":
+        if sampler_type == "WeightedRandom":
+            print("INFO: Using WeightedRandomSampler\n")
+            class_sample_count = np.array(
+                train_df[main_level].value_counts().sort_index()
+            )
+            weight = 1.0 / class_sample_count
+            samples_weight = np.array([weight[t] for t in train_df[main_level]])
+
+            samples_weight = torch.from_numpy(samples_weight)
+            sampler = WeightedRandomSampler(
+                samples_weight.type("torch.DoubleTensor"),
+                len(samples_weight),
+                replacement=True,
+            )
+            transformed_train = EyeDataset(
+                df=train_df,
+                root_dir=root_image_dir,
+                name=dataset_name,
+                transform=EyeTrainTransform,
+            )
+
+        elif sampler_type == "Stratified":
+            print("INFO: Using StratifiedSampler\n")
+            sampler = StratifiedSampler(train_df)
+
+            transformed_train = EyeDataset(
+                df=train_df,
+                root_dir=root_image_dir,
+                name=dataset_name,
+                transform=EyeTrainTransform,
+            )
+        elif sampler_type == "CustomStratified":
+            print("INFO: Using CustomStratifiedSampler\n")
+            sampler = CustomStratifiedSampler(
+                df=train_df,
+                label_col=main_level,
+                sensitive_attr_col=SA_level,
+                batch_size=batch_size,
+            )
+
+            transformed_train = EyeDataset(
+                df=train_df,
+                root_dir=root_image_dir,
+                name=dataset_name,
+                is_tracked=True,
+                transform=EyeTrainTransform,
+                SimpleTransform=EyeValTransform,
+            )
+
+        else:
+            raise ValueError("Invalid sampler type")
+
+        transformed_val = EyeDataset(
+            df=val_df,
+            root_dir=root_image_dir,
+            name=dataset_name,
+            transform=EyeValTransform,
+        )
+    else:
+        raise ValueError("Invalid dataset name")
 
     dataloaders = {
         "train": DataLoader(
             transformed_train,
             batch_size=batch_size,
             sampler=sampler,
-            # drop_last = True,
-            # shuffle=True,
             num_workers=num_workers,
         ),
         "val": DataLoader(
