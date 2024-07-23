@@ -4,21 +4,28 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import WeightedRandomSampler
 from torchvision import transforms
+from torchvision.transforms.functional import InterpolationMode
 from sklearn.model_selection import train_test_split
 
 from .datasets import SkinDataset, EyeDataset
 from Utils.Misc_utils import StratifiedSampler, CustomStratifiedSampler
-
-import torch
-from torchvision.transforms import autoaugment, transforms
-from torchvision.transforms.functional import InterpolationMode
 
 
 def train_val_split(
     Generated_csv_path,
     stratify_cols=["low"],
 ):
-    """Performs train-validation split"""
+    """
+    Split the dataset into training and testing sets.
+
+    Parameters:
+    - Generated_csv_path (str): The path to the generated CSV file.
+    - stratify_cols (list, optional): The columns to use for stratification. Default is ["low"].
+
+    Returns:
+    - train (DataFrame): The training set.
+    - test (DataFrame): The testing set.
+    """
 
     df = pd.read_csv(Generated_csv_path)
     df["stratify"] = df[stratify_cols].astype(str).agg("_".join, axis=1)
@@ -45,6 +52,23 @@ def get_dataloaders(
     batch_size=64,
     num_workers=1,
 ):
+    """
+    Get data loaders for training and validation datasets.
+
+    Args:
+        root_image_dir (str): Root directory of the image dataset.
+        Generated_csv_path (str): Path to the generated CSV file.
+        sampler_type (str, optional): Type of sampler to use for imbalanced dataset. Defaults to "WeightedRandom".
+        dataset_name (str, optional): Name of the dataset. Defaults to "Fitz17k".
+        stratify_cols (list, optional): Columns to use for stratification during train-validation split. Defaults to ["low"].
+        main_level (str, optional): Column name for the main level classification. Defaults to "high".
+        SA_level (str, optional): Column name for the sensitive attribute level classification. Defaults to "fitzpatrick_binary".
+        batch_size (int, optional): Batch size for the data loaders. Defaults to 64.
+        num_workers (int, optional): Number of worker threads for data loading. Defaults to 1.
+
+    Returns:
+        tuple: A tuple containing the data loaders, dataset sizes, main level class count, and sensitive attribute class count.
+    """
 
     train_df, val_df = train_val_split(Generated_csv_path, stratify_cols=stratify_cols)
 
@@ -57,7 +81,9 @@ def get_dataloaders(
     # Transforms
     EyeTrainTransform = transforms.Compose(
         [
-            transforms.RandomResizedCrop(224, interpolation=InterpolationMode.BILINEAR),
+            transforms.RandomResizedCrop(
+                size=224, interpolation=InterpolationMode.BILINEAR
+            ),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.PILToTensor(),
             transforms.ConvertImageDtype(torch.float),
@@ -67,8 +93,8 @@ def get_dataloaders(
 
     EyeValTransform = transforms.Compose(
         [
-            transforms.Resize(256, interpolation=InterpolationMode.BILINEAR),
-            transforms.CenterCrop(224),
+            transforms.Resize(size=256, interpolation=InterpolationMode.BILINEAR),
+            transforms.CenterCrop(size=224),
             transforms.PILToTensor(),
             transforms.ConvertImageDtype(torch.float),
             transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
