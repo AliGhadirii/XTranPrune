@@ -44,6 +44,8 @@ def train_val_split(
 def get_dataloaders(
     root_image_dir,
     Generated_csv_path,
+    train_csv_path=None,
+    val_csv_path=None,
     sampler_type="WeightedRandom",
     dataset_name="Fitz17k",
     stratify_cols=["low"],
@@ -58,6 +60,8 @@ def get_dataloaders(
     Args:
         root_image_dir (str): Root directory of the image dataset.
         Generated_csv_path (str): Path to the generated CSV file.
+        train_csv_path (str, optional): Path to the train CSV file.
+        val_csv_path (str, optional): Path to the validation CSV file.
         sampler_type (str, optional): Type of sampler to use for imbalanced dataset. Defaults to "WeightedRandom".
         dataset_name (str, optional): Name of the dataset. Defaults to "Fitz17k".
         stratify_cols (list, optional): Columns to use for stratification during train-validation split. Defaults to ["low"].
@@ -70,7 +74,13 @@ def get_dataloaders(
         tuple: A tuple containing the data loaders, dataset sizes, main level class count, and sensitive attribute class count.
     """
 
-    train_df, val_df = train_val_split(Generated_csv_path, stratify_cols=stratify_cols)
+    if train_csv_path is not None and val_csv_path is not None:
+        train_df = pd.read_csv(train_csv_path)
+        val_df = pd.read_csv(val_csv_path)
+    else:
+        train_df, val_df = train_val_split(
+            Generated_csv_path, stratify_cols=stratify_cols
+        )
 
     dataset_sizes = {"train": train_df.shape[0], "val": val_df.shape[0]}
     print(dataset_sizes)

@@ -228,7 +228,7 @@ class EyeDataset:
         sample = {
             "filename": self.df.loc[self.df.index[idx], "filename"],
             "image": image,
-            "label": self.df.loc[self.df.index[idx], "glaucoma"],
+            "glaucoma": self.df.loc[self.df.index[idx], "glaucoma"],
             "age_binary": self.df.loc[self.df.index[idx], "age_binary"],
             "age_multi": self.df.loc[self.df.index[idx], "age_multi"],
             "gender_binary": self.df.loc[self.df.index[idx], "gender_binary"],

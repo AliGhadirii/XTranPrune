@@ -305,17 +305,32 @@ if __name__ == "__main__":
 
     set_seeds(config["seed"])
 
-    dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        sampler_type="WeightedRandom",
-        dataset_name=config["dataset_name"],
-        stratify_cols=["low"],
-        main_level=config["train"]["main_level"],
-        SA_level=config["train"]["SA_level"],
-        batch_size=config["train"]["batch_size"],
-        num_workers=1,
-    )
+    if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
+        dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
+            root_image_dir=config["root_image_dir"],
+            Generated_csv_path=config["Generated_csv_path"],
+            sampler_type="WeightedRandom",
+            dataset_name=config["dataset_name"],
+            stratify_cols=["low"],
+            main_level=config["train"]["main_level"],
+            SA_level=config["train"]["SA_level"],
+            batch_size=config["train"]["batch_size"],
+            num_workers=1,
+        )
+    elif config["dataset_name"] in ["GF3300"]:
+        dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
+            root_image_dir=config["root_image_dir"],
+            train_csv_path=config["train_csv_path"],
+            val_csv_path=config["val_csv_path"],
+            sampler_type="WeightedRandom",
+            dataset_name=config["dataset_name"],
+            main_level=config["train"]["main_level"],
+            SA_level=config["train"]["SA_level"],
+            batch_size=config["train"]["batch_size"],
+            num_workers=1,
+        )
+    else:
+        raise ValueError("Invalid dataset name.")
 
     # load both models
     model = deit_small_patch16_224(
