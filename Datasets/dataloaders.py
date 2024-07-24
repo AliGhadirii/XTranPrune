@@ -43,7 +43,7 @@ def train_val_split(
 
 def get_dataloaders(
     root_image_dir,
-    Generated_csv_path,
+    Generated_csv_path=None,
     train_csv_path=None,
     val_csv_path=None,
     sampler_type="WeightedRandom",

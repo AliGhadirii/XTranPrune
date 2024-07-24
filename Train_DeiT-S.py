@@ -62,15 +62,19 @@ def train_model(
 
     start_epoch = 1
     best_f1 = 0
+    best_loss = np.inf
     best_model = None
 
-    best_model_path = os.path.join(
-        config["output_folder_path"], f"{model_name}_BEST.pth"
+    best_model_path_f1 = os.path.join(
+        config["output_folder_path"], f"{model_name}_BEST_F1.pth"
+    )
+    best_model_path_loss = os.path.join(
+        config["output_folder_path"], f"{model_name}_BEST_loss.pth"
     )
 
-    if os.path.isfile(best_model_path):
-        print("Resuming training from:", best_model_path)
-        checkpoint = torch.load(best_model_path)
+    if os.path.isfile(best_model_path_f1):
+        print("Resuming training from:", best_model_path_f1)
+        checkpoint = torch.load(best_model_path_f1)
 
         model = checkpoint["model"]
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
@@ -238,12 +242,11 @@ def train_model(
                 }
                 best_model = model
                 best_f1 = epoch_stats["F1_Mac"]
-                torch.save(checkpoint, best_model_path)
-                print("Checkpoint saved:", best_model_path)
-            elif phase == "val":
-                model_path = os.path.join(
-                    config["output_folder_path"], f"{model_name}_epoch{epoch}.pth"
-                )
+                torch.save(checkpoint, best_model_path_f1)
+                print("Checkpoint saved:", best_model_path_f1)
+            elif phase == "val" and epoch_stats["loss"] < best_loss:
+                print("New leading loss: {}".format(epoch_stats["loss"]))
+
                 # Save checkpoint
                 checkpoint = {
                     "leading_epoch": epoch,
@@ -253,8 +256,9 @@ def train_model(
                     "leading_val_metrics": epoch_stats,
                     "model": model,
                 }
-                best_model = model
-                torch.save(checkpoint, model_path)
+                best_loss = epoch_stats["loss"]
+                torch.save(checkpoint, best_model_path_loss)
+                print("Checkpoint saved:", best_model_path_loss)
 
         time_elapsed_epoch = time.time() - since_epoch
         print(
@@ -350,15 +354,46 @@ def main(config):
     else:
         criterion = nn.CrossEntropyLoss()
 
-    optimizer = optim.Adam(get_params_groups(model), lr=1e-4, weight_decay=1e-5)
-    scheduler = LinearWarmup(
-        optimizer,
-        max_lr=1e-4,
-        eta_min=1e-6,
-        warmup_epochs=0,
-        warmup_iters=1000,
-        steps_per_epoch=len(dataloaders["train"]),
-    )
+    if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
+        optimizer = optim.Adam(get_params_groups(model), lr=1e-4, weight_decay=1e-5)
+        scheduler = LinearWarmup(
+            optimizer,
+            max_lr=1e-4,
+            eta_min=1e-6,
+            warmup_epochs=0,
+            warmup_iters=1000,
+            steps_per_epoch=len(dataloaders["train"]),
+        )
+    elif config["dataset_name"] in ["GF3300"]:
+
+        lr_warmup_epochs = 10
+        lr = 1e-4
+        lr_min = 1e-6
+        weight_decay = 1e-4
+        lr_warmup_decay = 0.01
+
+        optimizer = torch.optim.AdamW(
+            get_params_groups(model), lr=lr, weight_decay=weight_decay
+        )
+        main_lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=config["train"]["n_epochs"] - lr_warmup_epochs,
+            eta_min=lr_min,
+        )
+
+        warmup_lr_scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=lr_warmup_decay,
+            total_iters=lr_warmup_epochs,
+        )
+
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup_lr_scheduler, main_lr_scheduler],
+            milestones=[lr_warmup_epochs],
+        )
+    else:
+        raise ValueError("Invalid dataset name")
 
     best_model = train_model(
         dataloaders,
