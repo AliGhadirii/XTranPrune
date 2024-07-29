@@ -15,6 +15,8 @@ train:
   - high
   - fitzpatrick
   sampler_type: CustomStratified                    # ["WeightedRandom", "Stratified", "CustomStratified"]
+eval:
+  weight_path: ""
 prune:
   main_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_baseline_High/DiT_S_LRP_level=high_checkpoint_BASE.pth
   SA_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_SABranch_Binary/DiT_S_LRP_2SABranch_checkpoint.pth

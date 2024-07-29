@@ -83,7 +83,6 @@ def train_model(
         leading_epoch = checkpoint["leading_epoch"]
         start_epoch = leading_epoch + 1
         best_f1 = leading_val_metrics["F1_Mac"]
-        return model
 
     for epoch in range(start_epoch, config["train"]["n_epochs"]):
         since_epoch = time.time()
@@ -366,15 +365,21 @@ def main(config):
         )
     elif config["dataset_name"] in ["GF3300"]:
 
-        lr_warmup_epochs = 10
         lr = 1e-4
         lr_min = 1e-6
-        weight_decay = 1e-4
+        weight_decay = 1e-5
+
+        lr_warmup_epochs = 10
         lr_warmup_decay = 0.01
 
+        print(f"optimezer: lr={lr}, weight_decay={weight_decay}")
+        print(
+            f"scheduler: lr_warmup_epochs={lr_warmup_epochs}, lr_min={lr_min}, lr_warmup_decay={lr_warmup_decay}"
+        )
         optimizer = torch.optim.AdamW(
             get_params_groups(model), lr=lr, weight_decay=weight_decay
         )
+
         main_lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
             T_max=config["train"]["n_epochs"] - lr_warmup_epochs,
@@ -407,6 +412,14 @@ def main(config):
         model_name,
         config,
     )
+
+    print(
+        f"loading best model from {os.path.join(config['output_folder_path'], f'{model_name}_BEST_F1.pth')}"
+    )
+    checkpoint = torch.load(
+        os.path.join(config["output_folder_path"], f"{model_name}_BEST_F1.pth")
+    )
+    best_model = checkpoint["model"]
 
     if config["train"]["branch"] == "main":
         val_metrics, _ = eval_model(

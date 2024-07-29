@@ -3,16 +3,18 @@ root_image_dir: /home/ali/Datasets/Harvard-GF3300/
 train_csv_path: /home/ali/Datasets/Harvard-GF3300/train.csv
 val_csv_path: /home/ali/Datasets/Harvard-GF3300/test.csv
 dataset_name: GF3300                 # ["GF3300"]
-output_folder_path: /home/ali/Outputs/GF3300/MainBranchBaseline/
+output_folder_path: /home/ali/Outputs/GF3300/SABranchBaseline_age_binary_2/
 num_workers: 1
 train:
-  branch: main                        # ["main", "SA"]
+  branch: SA                        # ["main", "SA"]
   batch_size: 64
   main_level: glaucoma                    # [glaucoma]
   SA_level: age_binary        # [age_binary, age_multi, gender_binary, race_binary]
   n_epochs: 50
   pretrained: True                                     # [True, False]
   sampler_type: WeightedRandom                    # ["WeightedRandom", "Stratified", "CustomStratified"]
+# eval:
+#   weight_path: "/home/ali/Outputs/GF3300/MainBranchBaseline_new/DiT_S_level=glaucoma_BEST_F1.pth"
 # prune:
 #   main_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_baseline_High/DiT_S_LRP_level=high_checkpoint_BASE.pth
 #   SA_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_SABranch_Binary/DiT_S_LRP_2SABranch_checkpoint.pth
