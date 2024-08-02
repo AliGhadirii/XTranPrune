@@ -112,7 +112,13 @@ def train_model(
             ):
 
                 inputs = batch["image"].to(device)
-                labels = batch[config["train"]["main_level"]]
+
+                if config["train"]["branch"] == "main":
+                    labels = batch[config["train"]["main_level"]]
+                elif config["train"]["branch"] == "SA":
+                    labels = batch[config["train"]["SA_level"]]
+                else:
+                    raise ValueError("Invalid branch type")
 
                 if num_classes == 2:
                     labels = (
@@ -308,7 +314,7 @@ def main(config):
 
     set_seeds(config["seed"])
 
-    model_name = f"DiT_S_level={config['train']['main_level']}"
+    model_name = f"DiT_S_label={config['train']['main_level'] if config['train']['branch'] == 'main' else config['train']['SA_level']}"
 
     if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
         dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
@@ -369,7 +375,7 @@ def main(config):
         lr_min = 1e-6
         weight_decay = 1e-5
 
-        lr_warmup_epochs = 10
+        lr_warmup_epochs = 5
         lr_warmup_decay = 0.01
 
         print(f"optimezer: lr={lr}, weight_decay={weight_decay}")
@@ -413,13 +419,17 @@ def main(config):
         config,
     )
 
-    print(
-        f"loading best model from {os.path.join(config['output_folder_path'], f'{model_name}_BEST_F1.pth')}"
-    )
     checkpoint = torch.load(
         os.path.join(config["output_folder_path"], f"{model_name}_BEST_F1.pth")
     )
+
     best_model = checkpoint["model"]
+
+    print(
+        f"Loaded the best model from {os.path.join(config['output_folder_path'], f'{model_name}_BEST_F1.pth')}"
+    )
+    print(f"Best model was for epoch: {checkpoint['leading_epoch']}")
+    print(f"Best model validation metrics: {checkpoint['leading_val_metrics']}\n")
 
     if config["train"]["branch"] == "main":
         val_metrics, _ = eval_model(

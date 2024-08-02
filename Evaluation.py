@@ -167,7 +167,7 @@ def eval_model_SABranch(
     config,
     save_preds=False,
 ):
-    model = model.eval()
+    model = model.eval().to(device)
 
     hasher_list = []
     prediction_list = []
@@ -233,13 +233,6 @@ def eval_model_SABranch(
 
             total += inputs.shape[0]
 
-    def flatten(list_of_lists):
-        if len(list_of_lists) == 0:
-            return list_of_lists
-        if isinstance(list_of_lists[0], list):
-            return flatten(list_of_lists[0]) + flatten(list_of_lists[1:])
-        return list_of_lists[:1] + flatten(list_of_lists[1:])
-
     if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
         df_preds = pd.DataFrame(
             {
@@ -254,7 +247,7 @@ def eval_model_SABranch(
         df_preds = pd.DataFrame(
             {
                 "filename": flatten(hasher_list),
-                "{}".format(config["train"]["SA_level"]): flatten(SA_list),
+                f"{config['train']['SA_level']}": flatten(SA_list),
                 "prediction": flatten(prediction_list),
                 "prediction_probability": flatten(p_list),
             }
@@ -274,10 +267,10 @@ def eval_model_SABranch(
     y_pred = df_preds["prediction"].values
 
     accuracy = accuracy_score(y_true, y_pred)
-    precision = precision_score(y_true, y_pred)
-    recall = recall_score(y_true, y_pred)
-    auc = roc_auc_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred, average="macro")
+    recall = recall_score(y_true, y_pred, average="macro")
+    auc = roc_auc_score(y_true, flatten(p_list))
+    f1 = f1_score(y_true, y_pred, average="macro")
 
     metrics = {
         "Accuracy": accuracy,

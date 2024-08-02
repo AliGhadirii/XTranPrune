@@ -3,33 +3,34 @@ root_image_dir: /home/ali/Datasets/Harvard-GF3300/
 train_csv_path: /home/ali/Datasets/Harvard-GF3300/train.csv
 val_csv_path: /home/ali/Datasets/Harvard-GF3300/test.csv
 dataset_name: GF3300                 # ["GF3300"]
-output_folder_path: /home/ali/Outputs/GF3300/SABranchBaseline_age_binary_2/
+output_folder_path: /home/ali/Outputs/GF3300/SABranchBaseline_gender_binary/
 num_workers: 1
 train:
   branch: SA                        # ["main", "SA"]
   batch_size: 64
   main_level: glaucoma                    # [glaucoma]
-  SA_level: age_binary        # [age_binary, age_multi, gender_binary, race_binary]
+  SA_level: gender_binary        # [age_binary, age_multi, gender_binary, race_binary]
   n_epochs: 50
   pretrained: True                                     # [True, False]
   sampler_type: WeightedRandom                    # ["WeightedRandom", "Stratified", "CustomStratified"]
 # eval:
-#   weight_path: "/home/ali/Outputs/GF3300/MainBranchBaseline_new/DiT_S_level=glaucoma_BEST_F1.pth"
+#   weight_path: 
 # prune:
-#   main_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_baseline_High/DiT_S_LRP_level=high_checkpoint_BASE.pth
-#   SA_br_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune_SABranch_Binary/DiT_S_LRP_2SABranch_checkpoint.pth
+#   main_br_path: /home/ali/Outputs/GF3300/MainBranchBaseline/DiT_S_label=glaucoma_BEST_F1.pth
+#   SA_br_path: /home/ali/Outputs/GF3300/SABranchBaseline_age_binary/DiT_S_label=glaucoma_BEST_F1.pth
+#   sampler_type: CustomStratified                    # ["WeightedRandom", "Stratified", "CustomStratified"]
 #   target_bias_metric: EOM
-#   bias_metric_prev: 0.628
+#   bias_metric_prev: 0.833
 #   max_consecutive_no_improvement: 7
-#   batch_size: 6
-#   num_batch_per_iter: 333
+#   batch_size: 4
+#   num_batch_per_iter: 100
 #   main_mask_retain_rate: 0.8
-#   pruning_rate: 0.4
-#   beta1: 0.4
-#   beta2: 0.4
+#   pruning_rate: 0.3
+#   beta1: 0.3
+#   beta2: 0.3
 #   cont_method: transformer_attribution                # ["transformer_attribution", "attr", "grad", "attn", "TAM", AttrRoll", "FTaylor", "FTaylorpow2"]
 #   method: MA_Uncertainty                                          # ['normal', 'MA', 'MA_Uncertainty']
-#   FObjective: MinJSD_Diff                             # [MinDiff, MinJSD_Diff]
+#   FObjective: MinJSD_Diff                              # [MinDiff, MinJSD_Diff]
 #   MaskUpdate_Type: "AND"                              # ["AND", "LAST"]
 #   verbose: 2                                          # [0, 1, 2] (more details as the number grows)
   

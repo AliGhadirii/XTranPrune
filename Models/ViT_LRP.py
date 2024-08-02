@@ -686,6 +686,7 @@ def deit_small_patch16_224(
     num_classes=3,
     add_hook=False,
     need_ig=False,
+    device="cuda",
     **kwargs,
 ):
     model = VisionTransformer(
@@ -715,8 +716,8 @@ def deit_small_patch16_224(
             strict=False,
         )
         print("Pre-trained weights on ImageNet loaded...")
-    elif weight_path != None:
-        checkpoint = torch.load(weight_path)
+    elif weight_path is not None:
+        checkpoint = torch.load(weight_path, map_location=device)
         if "model" in checkpoint:
             model = checkpoint["model"]
             if model.add_hook == False and add_hook:

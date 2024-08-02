@@ -470,7 +470,7 @@ def main(config, args):
         dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
             root_image_dir=config["root_image_dir"],
             Generated_csv_path=config["Generated_csv_path"],
-            sampler_type=config["train"]["sampler_type"],
+            sampler_type=config["prune"]["sampler_type"],
             dataset_name=config["dataset_name"],
             stratify_cols=config["train"]["stratify_cols"],
             main_level=config["train"]["main_level"],
@@ -497,7 +497,7 @@ def main(config, args):
             root_image_dir=config["root_image_dir"],
             train_csv_path=config["train_csv_path"],
             val_csv_path=config["val_csv_path"],
-            sampler_type=config["train"]["sampler_type"],
+            sampler_type=config["prune"]["sampler_type"],
             dataset_name=config["dataset_name"],
             main_level=config["train"]["main_level"],
             SA_level=config["train"]["SA_level"],
@@ -521,7 +521,7 @@ def main(config, args):
     else:
         raise ValueError("Invalid dataset name")
 
-    # load both models
+    # load the model
     model = deit_small_patch16_224(
         num_classes=main_num_classes,
         add_hook=True,
