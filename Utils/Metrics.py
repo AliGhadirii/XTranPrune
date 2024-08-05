@@ -11,13 +11,8 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt
 
 
-def cal_metrics(df):
-    """
-    calculate average accuracy, accuracy per skin type, PQD, DPM, EOM, EOpp0, EOpp1, EOdd, and NAR.
-    Skin type in the input df should be in the range of [0,5].
-    input val results csv path, type_indices: a list
-    output a dic, 'acc_avg': value, 'acc_per_type': array[x,x,x], 'PQD', 'DPM', 'EOM'
-    """
+def cal_metrics_skin(df):
+
     is_binaryCLF = len(df["label"].unique()) == 2
     num_classes = len(df["label"].unique())
 
@@ -357,6 +352,316 @@ def cal_metrics(df):
         "DPM_binary": DPM_binary,
         "EOM_binary": EOM_binary,
         "NAR_binary": NAR_binary,
+    }
+
+
+def cal_metrics_eye(df, SA_level):
+
+    num_classes = len(df["label"].unique())
+    is_binaryCLF = len(df["label"].unique()) == 2
+
+    type_indices = sorted(list(df[SA_level].unique()))
+    is_binarySA = len(type_indices) == 2
+    if not is_binarySA:
+        SA_level_binary = SA_level.replace("binary", "multi")
+
+    labels_array = np.zeros((len(type_indices), len(df["label"].unique())))
+    correct_array = np.zeros((len(type_indices), len(df["label"].unique())))
+    predictions_array = np.zeros((len(type_indices), len(df["label"].unique())))
+    prob_array = [[] for i in range(len(type_indices))]
+    label_array_per_SA = [[] for i in range(len(type_indices))]
+
+    positive_list = []
+    labels_SA0 = []
+    labels_SA1 = []
+    predictions_SA0 = []
+    predictions_SA1 = []
+
+    for i in range(df.shape[0]):
+        prediction = df.iloc[i]["prediction"]
+        label = df.iloc[i]["label"]
+        type = df.iloc[i][SA_level]
+        if not is_binarySA:
+            type_binary = df.iloc[i][SA_level_binary]
+
+        labels_array[int(type), int(label)] += 1
+        predictions_array[int(type), int(prediction)] += 1
+        if prediction == label:
+            correct_array[int(type), int(label)] += 1
+
+        if is_binaryCLF:
+            prob_array[int(type)].append(df.iloc[i]["prediction_probability"])
+            label_array_per_SA[int(type)].append(label)
+            if prediction == 0:
+                positive_list.append(1.0 - df.iloc[i]["prediction_probability"])
+            else:
+                positive_list.append(df.iloc[i]["prediction_probability"])
+
+        if is_binarySA:
+            if type == 0:
+                labels_SA0.append(label)
+                predictions_SA0.append(prediction)
+            else:
+                labels_SA1.append(label)
+                predictions_SA1.append(prediction)
+        else:
+            if type_binary == 0:
+                labels_SA0.append(label)
+                predictions_SA0.append(prediction)
+            else:
+                labels_SA1.append(label)
+                predictions_SA1.append(prediction)
+
+    correct_array = correct_array[type_indices]
+    labels_array = labels_array[type_indices]
+    predictions_array = predictions_array[type_indices]
+
+    # Accuracy, accuracy per type
+    Accuracy = accuracy_score(df["label"], df["prediction"]) * 100
+
+    acc_array = []
+    for i in range(len(type_indices)):
+        acc_array.append(
+            accuracy_score(
+                df[df[SA_level] == i]["label"],
+                df[df[SA_level] == i]["prediction"],
+            )
+            * 100
+        )
+    acc_array = np.array(acc_array)
+
+    # f1_score, f1-score per type (Weighted average)
+    F1_W = f1_score(df["label"], df["prediction"], average="weighted") * 100
+
+    F1_W_array = []
+    for i in range(len(type_indices)):
+        F1_W_array.append(
+            f1_score(
+                df[df[SA_level] == i]["label"],
+                df[df[SA_level] == i]["prediction"],
+                average="weighted",
+            )
+            * 100
+        )
+    F1_W_array = np.array(F1_W_array)
+
+    # f1_score, f1-score per type (Macro average)
+    F1_Mac = f1_score(df["label"], df["prediction"], average="macro") * 100
+
+    F1_Mac_array = []
+    for i in range(len(type_indices)):
+        F1_Mac_array.append(
+            f1_score(
+                df[df[SA_level] == i]["label"],
+                df[df[SA_level] == i]["prediction"],
+                average="macro",
+            )
+            * 100
+        )
+    F1_Mac_array = np.array(F1_Mac_array)
+
+    # PQD
+    PQD = acc_array.min() / acc_array.max()
+
+    # DPM
+    demo_array = predictions_array / np.sum(predictions_array, axis=1, keepdims=True)
+    DPM = np.mean(demo_array.min(axis=0) / demo_array.max(axis=0))
+
+    # EOM
+    eo_array = correct_array / labels_array
+    EOM = np.mean(np.nanmin(eo_array, axis=0) / np.nanmax(eo_array, axis=0))
+
+    # NAR
+    NAR = (acc_array.max() - acc_array.min()) / acc_array.mean()
+
+    # NFR (Weighted)
+    NFR_W = (F1_W_array.max() - F1_W_array.min()) / F1_W_array.mean()
+
+    # NAR (Macro)
+    NFR_Mac = (F1_Mac_array.max() - F1_Mac_array.min()) / F1_Mac_array.mean()
+
+    # AUC
+    if is_binaryCLF:
+        # AUC per skin type
+        AUC = roc_auc_score(df["label"], df["prediction_probability"]) * 100
+        AUC_per_type = []
+        for i in range(len(label_array_per_SA)):
+            try:
+                AUC_per_type.append(
+                    roc_auc_score(label_array_per_SA[i], prob_array[i]) * 100
+                )
+            except:
+                AUC_per_type.append(np.nan)
+        AUC_Gap = max(AUC_per_type) - min(AUC_per_type)
+    else:
+        all_probs = np.array(df["all_probability"].to_list())
+        AUC = (
+            roc_auc_score(df["label"], all_probs, average="macro", multi_class="ovo")
+            * 100
+        )
+
+        AUC_per_type = []
+        for i in range(len(label_array_per_SA)):
+            df_filtered = df[df[SA_level] == i]
+            all_probs = np.array(df_filtered["all_probability"].to_list())
+            try:
+                AUC_per_type.append(
+                    roc_auc_score(
+                        df_filtered["label"],
+                        all_probs,
+                        average="macro",
+                        multi_class="ovr",
+                    )
+                    * 100
+                )
+            except:
+                AUC_per_type.append(np.nan)
+        AUC_Gap = max(AUC_per_type) - min(AUC_per_type)
+
+    ##############################          Metrics with binary Sensative attribute         ##############################
+
+    # getting class-wise TPR, FPR, TNR for SA 0
+    conf_matrix_SA0 = confusion_matrix(labels_SA0, predictions_SA0)
+
+    # Initialize lists to store TPR, TNR, FPR for each class
+    class_tpr_SA0 = []
+    class_tnr_SA0 = []
+    class_fpr_SA0 = []
+
+    for i in range(len(conf_matrix_SA0)):
+        # Calculate TPR for class i
+        tpr = conf_matrix_SA0[i, i] / sum(conf_matrix_SA0[i, :])
+        class_tpr_SA0.append(tpr)
+
+        # Calculate TNR for class i
+        tn = (
+            sum(sum(conf_matrix_SA0))
+            - sum(conf_matrix_SA0[i, :])
+            - sum(conf_matrix_SA0[:, i])
+            + conf_matrix_SA0[i, i]
+        )
+        fp = sum(conf_matrix_SA0[:, i]) - conf_matrix_SA0[i, i]
+        fn = sum(conf_matrix_SA0[i, :]) - conf_matrix_SA0[i, i]
+        tnr = tn / (tn + fp)
+        class_tnr_SA0.append(tnr)
+
+        # Calculate FPR for class i
+        fpr = 1 - tnr
+        class_fpr_SA0.append(fpr)
+
+    # getting class-wise TPR, FPR, TNR for SA 1
+
+    conf_matrix_SA1 = confusion_matrix(labels_SA1, predictions_SA1)
+
+    # Check if there is any class that is not in both subgroups to handle it
+    try:
+        if is_binarySA:
+            class_idx = (
+                set(df[df[SA_level] == 0]["label"].unique())
+                - set(df[df[SA_level] == 1]["label"].unique())
+            ).pop()
+        else:
+            class_idx = (
+                set(df[df[SA_level_binary] == 0]["label"].unique())
+                - set(df[df[SA_level_binary] == 1]["label"].unique())
+            ).pop()
+        conf_matrix_SA1 = np.insert(conf_matrix_SA1, class_idx, 0, axis=1)
+        conf_matrix_SA1 = np.insert(conf_matrix_SA1, class_idx, 0, axis=0)
+        print(f"INFO: class {class_idx} is not in both binary subgroups")
+    except:
+        class_idx = None
+
+    # Initialize lists to store TPR, TNR, FPR for each class
+    class_tpr_SA1 = []
+    class_tnr_SA1 = []
+    class_fpr_SA1 = []
+
+    for i in range(len(conf_matrix_SA1)):
+        # Calculate TPR for class i
+        tpr = conf_matrix_SA1[i, i] / sum(conf_matrix_SA1[i, :])
+        class_tpr_SA1.append(tpr)
+
+        # Calculate TNR for class i
+        tn = (
+            sum(sum(conf_matrix_SA1))
+            - sum(conf_matrix_SA1[i, :])
+            - sum(conf_matrix_SA1[:, i])
+            + conf_matrix_SA1[i, i]
+        )
+        fp = sum(conf_matrix_SA1[:, i]) - conf_matrix_SA1[i, i]
+        fn = sum(conf_matrix_SA1[i, :]) - conf_matrix_SA1[i, i]
+        tnr = tn / (tn + fp)
+        class_tnr_SA1.append(tnr)
+
+        # Calculate FPR for class i
+        fpr = 1 - tnr
+        class_fpr_SA1.append(fpr)
+
+    if class_idx is not None:
+        class_tpr_SA1[class_idx] = np.nan
+        class_tnr_SA1[class_idx] = np.nan
+        class_fpr_SA1[class_idx] = np.nan
+
+    # EOpp0
+    EOpp0 = 0
+    for c in range(len(class_tnr_SA0)):
+        val = abs(class_tnr_SA1[c] - class_tnr_SA0[c])
+        if not np.isnan(val):
+            EOpp0 += val
+
+    EOpp0_new = np.abs((np.array(class_tnr_SA1) - np.array(class_tnr_SA0))).mean()
+
+    # EOpp1
+    EOpp1 = 0
+    for c in range(len(class_tpr_SA0)):
+        val = abs(class_tpr_SA1[c] - class_tpr_SA0[c])
+        if not np.isnan(val):
+            EOpp1 += val
+    EOpp1_new = np.abs((np.array(class_tpr_SA1) - np.array(class_tpr_SA0))).mean()
+
+    # EOdd
+    EOdd_new = (
+        np.abs(
+            (np.array(class_tpr_SA1) - np.array(class_tpr_SA0))
+            + (np.array(class_fpr_SA1) - np.array(class_fpr_SA0))
+        ).mean()
+        / 2
+    )
+    EOdd = 0
+    for c in range(len(class_tpr_SA0)):
+        val = abs(
+            class_tpr_SA1[c] - class_tpr_SA0[c] + class_fpr_SA1[c] - class_fpr_SA0[c]
+        )
+        if not np.isnan(val):
+            EOdd += val
+
+    return {
+        "accuracy": Accuracy,
+        "acc_per_type": acc_array,
+        "acc_gap": acc_array.max() - acc_array.min(),
+        "F1_W": F1_W,
+        "F1_per_type_W": F1_W_array,
+        "F1_W_gap": max(F1_W_array) - min(F1_W_array),
+        "F1_Mac": F1_Mac,
+        "F1_per_type_Mac": F1_Mac_array,
+        "F1_Mac_gap": max(F1_Mac_array) - min(F1_Mac_array),
+        "Worst_F1_Mac": min(F1_Mac_array),
+        "AUC": AUC,
+        "AUC_per_type": AUC_per_type,
+        "AUC_Gap": AUC_Gap,
+        "AUC_min": min(AUC_per_type),
+        "PQD": PQD,
+        "DPM": DPM,
+        "EOM": EOM,
+        "EOpp0": EOpp0,
+        "EOpp1": EOpp1,
+        "EOdd": EOdd,
+        "EOdd_new": EOdd_new,
+        "EOpp0_new": EOpp0_new,
+        "EOpp1_new": EOpp1_new,
+        "NAR": NAR,
+        "NFR_W": NFR_W,
+        "NFR_Mac": NFR_Mac,
     }
 
 

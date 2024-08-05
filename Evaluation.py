@@ -4,6 +4,7 @@ import yaml
 import numpy as np
 import pandas as pd
 import torch
+from pprint import pprint
 from sklearn.metrics import (
     accuracy_score,
     balanced_accuracy_score,
@@ -14,10 +15,26 @@ from sklearn.metrics import (
     classification_report,
 )
 
-from Utils.Metrics import cal_metrics, find_threshold
+from Utils.Metrics import cal_metrics_skin, cal_metrics_eye, find_threshold
 from Utils.Misc_utils import set_seeds, Logger, get_stat, get_mask_idx
 from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
+
+
+def flatten(list_of_lists):
+    if len(list_of_lists) == 0:
+        return list_of_lists
+    if isinstance(list_of_lists[0], list):
+        return flatten(list_of_lists[0]) + flatten(list_of_lists[1:])
+    return list_of_lists[:1] + flatten(list_of_lists[1:])
+
+
+def flatten_all_prob(list_of_lists):
+    flattened_list = []
+    for sublist in list_of_lists:
+        for item in sublist:
+            flattened_list.append(item)
+    return flattened_list
 
 
 def eval_model(
@@ -40,32 +57,34 @@ def eval_model(
     labels_list = []
     p_list = []
     all_p_list = []
-    topk_p = []
-    topk_n = []
-    d1 = []
-    d2 = []
-    d3 = []
-    p1 = []
-    p2 = []
-    p3 = []
+    SA_list = []
+
     with torch.no_grad():
         total = 0
 
         for batch in dataloaders["val"]:
             inputs = batch["image"].to(device)
             classes = batch[level]
-            fitzpatrick = batch["fitzpatrick"]
-            fitzpatrick_binary = batch["fitzpatrick_binary"]
-            fitzpatrick_scale = batch["fitzpatrick_scale"]
-            fitzpatrick = torch.from_numpy(np.asarray(fitzpatrick))
-            fitzpatrick_binary = torch.from_numpy(np.asarray(fitzpatrick_binary))
-            fitzpatrick_scale = torch.from_numpy(np.asarray(fitzpatrick_scale))
-            hasher = batch["hasher"]
 
             if num_classes == 2:
                 classes = torch.from_numpy(np.asarray(classes)).unsqueeze(1).to(device)
             else:
                 classes = torch.from_numpy(np.asarray(classes)).to(device)
+
+            if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
+                fitzpatrick = batch["fitzpatrick"]
+                fitzpatrick_binary = batch["fitzpatrick_binary"]
+                fitzpatrick_scale = batch["fitzpatrick_scale"]
+                fitzpatrick = torch.from_numpy(np.asarray(fitzpatrick))
+                fitzpatrick_binary = torch.from_numpy(np.asarray(fitzpatrick_binary))
+                fitzpatrick_scale = torch.from_numpy(np.asarray(fitzpatrick_scale))
+                hasher = batch["hasher"]
+            elif config["dataset_name"] in ["GF3300"]:
+                filename = batch["filename"]
+                SA = batch["{}".format(config["train"]["SA_level"])]
+                SA = torch.from_numpy(np.asarray(SA))
+            else:
+                raise ValueError("Invalid dataset name.")
 
             outputs = model(inputs.float())  # (batchsize, classes num)
 
@@ -75,72 +94,29 @@ def eval_model(
                     probs.cpu().data.numpy(), classes.cpu().data.numpy()
                 )
                 preds = (probs > theshold).to(torch.int32)
+
+                # Filling the all probs  with dummy values
+                all_probs = torch.zeros_like(probs)
             else:
                 all_probs = torch.nn.functional.softmax(outputs, dim=1)
                 probs, preds = torch.max(all_probs, 1)
 
-            if level == "low":
-                _, preds5 = torch.topk(all_probs, 3)  # topk values, topk indices
-                # topk_p.append(np.exp(_.cpu()).tolist())
-                topk_p.append((_.cpu()).tolist())
-                topk_n.append(preds5.cpu().tolist())
-
             p_list.append(probs.cpu().tolist())
-            all_p_list.append(all_probs.cpu().tolist())
             prediction_list.append(preds.cpu().tolist())
+            all_p_list.append(all_probs.cpu().tolist())
             labels_list.append(classes.tolist())
-            fitzpatrick_list.append(fitzpatrick.tolist())
-            fitzpatrick_binary_list.append(fitzpatrick_binary.tolist())
-            fitzpatrick_scale_list.append(fitzpatrick_scale.tolist())
-            hasher_list.append(hasher)
             total += inputs.shape[0]
 
-    def flatten(list_of_lists):
-        if len(list_of_lists) == 0:
-            return list_of_lists
-        if isinstance(list_of_lists[0], list):
-            return flatten(list_of_lists[0]) + flatten(list_of_lists[1:])
-        return list_of_lists[:1] + flatten(list_of_lists[1:])
+            if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
+                fitzpatrick_list.append(fitzpatrick.tolist())
+                fitzpatrick_binary_list.append(fitzpatrick_binary.tolist())
+                fitzpatrick_scale_list.append(fitzpatrick_scale.tolist())
+                hasher_list.append(hasher)
+            elif config["dataset_name"] in ["GF3300"]:
+                hasher_list.append(filename)
+                SA_list.append(SA.tolist())
 
-    def flatten_all_prob(list_of_lists):
-        flattened_list = []
-        for sublist in list_of_lists:
-            for item in sublist:
-                flattened_list.append(item)
-        return flattened_list
-
-    if level == "low":
-        for j in topk_n:  # each sample
-            for i in j:  # in k
-                d1.append(i[0])
-                d2.append(i[1])
-                d3.append(i[2])
-        for j in topk_p:
-            for i in j:
-                # print(i)
-                p1.append(i[0])
-                p2.append(i[1])
-                p3.append(i[2])
-
-        df_preds = pd.DataFrame(
-            {
-                "hasher": flatten(hasher_list),
-                "label": flatten(labels_list),
-                "fitzpatrick": flatten(fitzpatrick_list),
-                "fitzpatrick_binary": flatten(fitzpatrick_binary_list),
-                "fitzpatrick_scale": flatten(fitzpatrick_scale_list),
-                "prediction_probability": flatten(p_list),
-                "all_probability": flatten_all_prob(all_p_list),
-                "prediction": flatten(prediction_list),
-                "d1": d1,
-                "d2": d2,
-                "d3": d3,
-                "p1": p1,
-                "p2": p2,
-                "p3": p3,
-            }
-        )
-    else:
+    if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
         df_preds = pd.DataFrame(
             {
                 "hasher": flatten(hasher_list),
@@ -153,6 +129,22 @@ def eval_model(
                 "prediction": flatten(prediction_list),
             }
         )
+        metrics = cal_metrics_skin(df_preds)
+    elif config["dataset_name"] in ["GF3300"]:
+        df_preds = pd.DataFrame(
+            {
+                "filename": flatten(hasher_list),
+                "label": flatten(labels_list),
+                "{}".format(config["train"]["SA_level"]): flatten(SA_list),
+                "prediction_probability": flatten(p_list),
+                "all_probability": flatten_all_prob(all_p_list),
+                "prediction": flatten(prediction_list),
+            }
+        )
+        metrics = cal_metrics_eye(
+            df_preds, SA_level="{}".format(config["train"]["SA_level"])
+        )
+
     if save_preds:
 
         df_preds.to_csv(
@@ -162,8 +154,6 @@ def eval_model(
             ),
             index=False,
         )
-
-    metrics = cal_metrics(df_preds)
 
     return metrics, df_preds
 
@@ -177,7 +167,7 @@ def eval_model_SABranch(
     config,
     save_preds=False,
 ):
-    model = model.eval()
+    model = model.eval().to(device)
 
     hasher_list = []
     prediction_list = []
@@ -185,56 +175,65 @@ def eval_model_SABranch(
     fitzpatrick_binary_list = []
     gender_list = []
     p_list = []
+    SA_list = []
 
     with torch.no_grad():
         total = 0
 
         for batch in dataloaders["val"]:
             inputs = batch["image"].to(device)
-            hasher = batch["hasher"]
-            fitzpatrick = batch["fitzpatrick"]
-            fitzpatrick_binary = batch["fitzpatrick_binary"]
-            fitzpatrick = torch.from_numpy(np.asarray(fitzpatrick))
-            fitzpatrick_binary = (
-                torch.from_numpy(np.asarray(fitzpatrick_binary)).unsqueeze(1).to(device)
-            )
-            fitzpatrick_list.append(fitzpatrick.tolist())
-            fitzpatrick_binary_list.append(fitzpatrick_binary.cpu().tolist())
-            hasher_list.append(hasher)
-
-            if config["train"]["SA_level"] == "gender":
-                gender = batch["gender"]
-                gender = torch.from_numpy(np.asarray(gender)).unsqueeze(1).to(device)
-                gender_list.append(gender.cpu().tolist())
+            if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
+                hasher = batch["hasher"]
+                fitzpatrick = batch["fitzpatrick"]
+                fitzpatrick_binary = batch["fitzpatrick_binary"]
+                fitzpatrick = torch.from_numpy(np.asarray(fitzpatrick))
+                fitzpatrick_binary = (
+                    torch.from_numpy(np.asarray(fitzpatrick_binary))
+                    .unsqueeze(1)
+                    .to(device)
+                )
+            elif config["dataset_name"] in ["GF3300"]:
+                filename = batch["filename"]
+                SA = batch["{}".format(config["train"]["SA_level"])]
+                SA = torch.from_numpy(np.asarray(SA))
+            else:
+                raise ValueError("Invalid dataset name.")
 
             outputs = model(inputs.float())  # (batchsize, classes num)
 
             probs = torch.nn.functional.sigmoid(outputs)
 
-            if config["train"]["SA_level"] == "gender":
-                theshold = find_threshold(
-                    probs.cpu().data.numpy(), gender.cpu().data.numpy()
-                )
-                preds = (probs > theshold).to(torch.int32)
-            else:
+            if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
                 theshold = find_threshold(
                     probs.cpu().data.numpy(), fitzpatrick_binary.cpu().data.numpy()
                 )
                 preds = (probs > theshold).to(torch.int32)
+
+                hasher_list.append(hasher)
+                fitzpatrick_list.append(fitzpatrick.tolist())
+                fitzpatrick_binary_list.append(fitzpatrick_binary.cpu().tolist())
+
+            elif config["dataset_name"] in ["GF3300"]:
+                assert (
+                    "binary" in config["train"]["SA_level"]
+                ), "Sopporting binary SA only"
+
+                theshold = find_threshold(
+                    probs.cpu().data.numpy(), SA.cpu().data.numpy()
+                )
+                preds = (probs > theshold).to(torch.int32)
+                hasher_list.append(filename)
+                SA_list.append(SA.tolist())
+
+            else:
+                raise ValueError("Invalid dataset name.")
 
             p_list.append(probs.cpu().tolist())
             prediction_list.append(preds.cpu().tolist())
 
             total += inputs.shape[0]
 
-    def flatten(list_of_lists):
-        if len(list_of_lists) == 0:
-            return list_of_lists
-        if isinstance(list_of_lists[0], list):
-            return flatten(list_of_lists[0]) + flatten(list_of_lists[1:])
-        return list_of_lists[:1] + flatten(list_of_lists[1:])
-
-    if config["train"]["SA_level"] == "gender":
+    if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
         df_preds = pd.DataFrame(
             {
                 "hasher": flatten(hasher_list),
@@ -242,16 +241,14 @@ def eval_model_SABranch(
                 "prediction": flatten(prediction_list),
                 "fitzpatrick": flatten(fitzpatrick_list),
                 "prediction_probability": flatten(p_list),
-                "gender": flatten(gender_list),
             }
         )
-    else:
+    elif config["dataset_name"] in ["GF3300"]:
         df_preds = pd.DataFrame(
             {
-                "hasher": flatten(hasher_list),
-                "fitzpatrick_binary": flatten(fitzpatrick_binary_list),
+                "filename": flatten(hasher_list),
+                f"{config['train']['SA_level']}": flatten(SA_list),
                 "prediction": flatten(prediction_list),
-                "fitzpatrick": flatten(fitzpatrick_list),
                 "prediction_probability": flatten(p_list),
             }
         )
@@ -270,10 +267,10 @@ def eval_model_SABranch(
     y_pred = df_preds["prediction"].values
 
     accuracy = accuracy_score(y_true, y_pred)
-    precision = precision_score(y_true, y_pred)
-    recall = recall_score(y_true, y_pred)
-    auc = roc_auc_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred, average="macro")
+    recall = recall_score(y_true, y_pred, average="macro")
+    auc = roc_auc_score(y_true, flatten(p_list))
+    f1 = f1_score(y_true, y_pred, average="macro")
 
     metrics = {
         "Accuracy": accuracy,
@@ -283,10 +280,7 @@ def eval_model_SABranch(
         "F1-score": f1,
     }
 
-    print("validation metrics:")
-    print(metrics)
-
-    print(classification_report(y_true, y_pred))
+    print(classification_report(y_true, y_pred, digits=4))
 
     return metrics, df_preds
 
@@ -305,23 +299,38 @@ if __name__ == "__main__":
 
     set_seeds(config["seed"])
 
-    dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        sampler_type="WeightedRandom",
-        dataset_name=config["dataset_name"],
-        stratify_cols=["low"],
-        main_level=config["train"]["main_level"],
-        SA_level=config["train"]["SA_level"],
-        batch_size=config["train"]["batch_size"],
-        num_workers=1,
-    )
+    if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
+        dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
+            root_image_dir=config["root_image_dir"],
+            Generated_csv_path=config["Generated_csv_path"],
+            sampler_type="WeightedRandom",
+            dataset_name=config["dataset_name"],
+            stratify_cols=["low"],
+            main_level=config["train"]["main_level"],
+            SA_level=config["train"]["SA_level"],
+            batch_size=config["train"]["batch_size"],
+            num_workers=1,
+        )
+    elif config["dataset_name"] in ["GF3300"]:
+        dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
+            root_image_dir=config["root_image_dir"],
+            train_csv_path=config["train_csv_path"],
+            val_csv_path=config["val_csv_path"],
+            sampler_type="WeightedRandom",
+            dataset_name=config["dataset_name"],
+            main_level=config["train"]["main_level"],
+            SA_level=config["train"]["SA_level"],
+            batch_size=config["train"]["batch_size"],
+            num_workers=1,
+        )
+    else:
+        raise ValueError("Invalid dataset name.")
 
-    # load both models
-    model = deit_small_patch16_224(
-        num_classes=main_num_classes,
-        weight_path=config["eval_path"],
-    )
+    # load the model
+    checkpoint = torch.load(config["eval"]["weight_path"])
+    model = checkpoint["model"]
+    print(f"valmetrics read from checkpoint: {checkpoint['leading_val_metrics']}")
+    print()
     model = model.eval().to(device)
 
     val_metrics, _ = eval_model(
@@ -331,9 +340,11 @@ if __name__ == "__main__":
         main_num_classes,
         device,
         config["train"]["main_level"],
-        "main model",
+        "EvalScript",
         config,
         save_preds=True,
     )
 
-    print(val_metrics)
+    print("validation metrics:")
+    pprint(val_metrics)
+    print()

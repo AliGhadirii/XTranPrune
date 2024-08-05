@@ -466,33 +466,62 @@ def main(config, args):
 
     set_seeds(config["seed"])
 
-    dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
-        root_image_dir=config["root_image_dir"],
-        Generated_csv_path=config["Generated_csv_path"],
-        sampler_type=config["train"]["sampler_type"],
-        dataset_name=config["dataset_name"],
-        stratify_cols=config["train"]["stratify_cols"],
-        main_level=config["train"]["main_level"],
-        SA_level=config["train"]["SA_level"],
-        batch_size=config["prune"]["batch_size"],
-        num_workers=1,
-    )
-
-    val_dataloaders, val_dataset_sizes, val_main_num_classes, val_SA_num_classes = (
-        get_dataloaders(
+    if config["dataset_name"] in ["Fitz17k", "HIBA", "PAD"]:
+        dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
             root_image_dir=config["root_image_dir"],
             Generated_csv_path=config["Generated_csv_path"],
-            sampler_type="WeightedRandom",
+            sampler_type=config["prune"]["sampler_type"],
             dataset_name=config["dataset_name"],
-            stratify_cols=["low"],
+            stratify_cols=config["train"]["stratify_cols"],
             main_level=config["train"]["main_level"],
             SA_level=config["train"]["SA_level"],
-            batch_size=config["train"]["batch_size"],
+            batch_size=config["prune"]["batch_size"],
             num_workers=1,
         )
-    )
 
-    # load both models
+        val_dataloaders, val_dataset_sizes, val_main_num_classes, val_SA_num_classes = (
+            get_dataloaders(
+                root_image_dir=config["root_image_dir"],
+                Generated_csv_path=config["Generated_csv_path"],
+                sampler_type="WeightedRandom",
+                dataset_name=config["dataset_name"],
+                stratify_cols=["low"],
+                main_level=config["train"]["main_level"],
+                SA_level=config["train"]["SA_level"],
+                batch_size=config["train"]["batch_size"],
+                num_workers=1,
+            )
+        )
+    elif config["dataset_name"] in ["GF3300"]:
+        dataloaders, dataset_sizes, main_num_classes, SA_num_classes = get_dataloaders(
+            root_image_dir=config["root_image_dir"],
+            train_csv_path=config["train_csv_path"],
+            val_csv_path=config["val_csv_path"],
+            sampler_type=config["prune"]["sampler_type"],
+            dataset_name=config["dataset_name"],
+            main_level=config["train"]["main_level"],
+            SA_level=config["train"]["SA_level"],
+            batch_size=config["prune"]["batch_size"],
+            num_workers=1,
+        )
+
+        val_dataloaders, val_dataset_sizes, val_main_num_classes, val_SA_num_classes = (
+            get_dataloaders(
+                root_image_dir=config["root_image_dir"],
+                train_csv_path=config["train_csv_path"],
+                val_csv_path=config["val_csv_path"],
+                sampler_type="WeightedRandom",
+                dataset_name=config["dataset_name"],
+                main_level=config["train"]["main_level"],
+                SA_level=config["train"]["SA_level"],
+                batch_size=config["train"]["batch_size"],
+                num_workers=1,
+            )
+        )
+    else:
+        raise ValueError("Invalid dataset name")
+
+    # load the model
     model = deit_small_patch16_224(
         num_classes=main_num_classes,
         add_hook=True,
