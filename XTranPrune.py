@@ -9,6 +9,7 @@ import sys
 from pprint import pprint
 
 import torch
+import networkx as nx
 
 from Utils.Misc_utils import set_seeds, Logger, get_stat, get_mask_idx
 from Utils.Metrics import plot_metrics
@@ -18,27 +19,112 @@ from Explainability.ViT_Explainer import Explainer
 from Evaluation import eval_model
 
 
-def XTranPrune(
-    main_model,
-    SA_model,
-    dataloader,
-    device,
-    config,
-    prun_iter_cnt,
-    verbose=2,
-    MA_vectors=None,
-):
+def get_hooked_matrices(main_model, SA_model, dataloader, blk_mat_type, device, config):
+
     DL_iter = iter(dataloader)
 
-    main_explainer = Explainer(main_model)
-    SA_explainer = Explainer(SA_model)
-
-    ###############################  Getting the attribution vectors for all nodes in both branches ###############################
-
     num_tokens = main_model.patch_embed.num_patches + 1
-    blk_attrs_shape = (
+    blk_mat_shape = (
         main_model.depth,
         main_model.num_heads,
+        num_tokens,
+        num_tokens,
+    )
+
+    main_blk_mat_iter = torch.zeros(blk_mat_shape).to(device)
+    SA_blk_mat_iter = torch.zeros(blk_mat_shape).to(device)
+
+    for itr in tqdm(
+        range(config["prune"]["num_batch_per_iter"]),
+        total=config["prune"]["num_batch_per_iter"],
+        desc="Getting hooked matrices",
+    ):
+
+        try:
+            batch = next(DL_iter)
+        except StopIteration:
+            DL_iter = iter(dataloader)
+            batch = next(DL_iter)
+
+        inputs = batch["image"].to(device)
+        main_output = main_model(inputs)
+        SA_output = SA_model(inputs)
+
+        if blk_mat_type == "attention_weights":
+            main_blk_mat_batch = torch.stack(
+                [
+                    main_model.blocks[block_idx]
+                    .attn.get_attn_map()
+                    .mean(dim=0)
+                    .detach()
+                    for block_idx in range(main_model.depth)
+                ],
+                dim=0,
+            )
+            SA_blk_mat_batch = torch.stack(
+                [
+                    SA_model.blocks[block_idx].attn.get_attn_map().mean(dim=0).detach()
+                    for block_idx in range(SA_model.depth)
+                ],
+                dim=0,
+            )
+
+        elif blk_mat_type == "gradients":
+            main_blk_mat_batch = torch.stack(
+                [
+                    main_model.blocks[block_idx]
+                    .attn.get_attn_gradients()
+                    .mean(dim=0)
+                    .detach()
+                    for block_idx in range(main_model.depth)
+                ],
+                dim=0,
+            )
+            SA_blk_mat_batch = torch.stack(
+                [
+                    SA_model.blocks[block_idx]
+                    .attn.get_attn_gradients()
+                    .mean(dim=0)
+                    .detach()
+                    for block_idx in range(SA_model.depth)
+                ],
+                dim=0,
+            )
+        else:
+            raise ValueError("Invalid block matrix type.")
+
+        main_blk_mat_iter = main_blk_mat_iter + main_blk_mat_batch
+        SA_blk_mat_iter = SA_blk_mat_iter + SA_blk_mat_batch
+        main_blk_mat_batch = None
+        SA_blk_mat_batch = None
+
+    main_blk_mat_iter = main_blk_mat_iter / config["prune"]["num_batch_per_iter"]
+    SA_blk_mat_iter = SA_blk_mat_iter / config["prune"]["num_batch_per_iter"]
+
+    return main_blk_mat_iter.cpu(), SA_blk_mat_iter.cpu()
+
+
+def get_attr_score(main_explainer, SA_explainer, dataloader, device, config):
+    """
+    Calculate the attribute scores for the main and SA levels.
+
+    Args:
+        main_explainer (Explainer): The explainer for the main level.
+        SA_explainer (Explainer): The explainer for the SA level.
+        blk_attrs_shape (tuple): The shape of the block attributes.
+        dataloader (DataLoader): The data loader for the dataset.
+        device (torch.device): The device to perform computations on.
+        config (dict): The configuration parameters.
+
+    Returns:
+        tuple: A tuple containing the attribute scores for the main and SA levels.
+    """
+    DL_iter = iter(dataloader)
+
+    num_tokens = main_explainer.model.patch_embed.num_patches + 1
+    blk_attrs_shape = (
+        main_explainer.model.depth,
+        main_explainer.model.num_heads,
         num_tokens,
         num_tokens,
     )
@@ -48,7 +134,7 @@ def XTranPrune(
     for itr in tqdm(
         range(config["prune"]["num_batch_per_iter"]),
         total=config["prune"]["num_batch_per_iter"],
-        desc="Generating masks",
+        desc="Generating node attributions",
     ):
 
         try:
@@ -152,6 +238,290 @@ def XTranPrune(
     main_blk_attrs_iter = main_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
     SA_blk_attrs_iter = SA_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
 
+    return main_blk_attrs_iter, SA_blk_attrs_iter
+
+
+def generate_pruning_mask(
+    main_blk_attrs_iter_final, SA_blk_attrs_iter_final, prun_iter_cnt, verbose=2
+):
+    main_mask = []
+    prun_mask = []
+
+    num_blocks, num_heads, num_tokens = (
+        main_blk_attrs_iter_final.shape[0],
+        main_blk_attrs_iter_final.shape[1],
+        main_blk_attrs_iter_final.shape[2],
+    )
+
+    for blk_idx in range(main_blk_attrs_iter_final.shape[0]):
+        main_mask_blk = []
+        prun_mask_blk = []
+        for h in range(main_blk_attrs_iter_final.shape[1]):
+            # Generating the main mask
+            main_attrs_flt = main_blk_attrs_iter_final[blk_idx][h].flatten()
+
+            threshold = torch.quantile(
+                main_attrs_flt, 1 - config["prune"]["main_mask_retain_rate"]
+            )  # (this param)% of the most important main params will be retained
+
+            main_mask_blk_head = (
+                main_blk_attrs_iter_final[blk_idx][h] < threshold
+            ).float()
+
+            # Generating the pruning mask from SA branch
+            can_be_pruned = SA_blk_attrs_iter_final[blk_idx][h] * main_mask_blk_head
+            can_be_pruned_flt = can_be_pruned.flatten()
+
+            k = int(
+                config["prune"]["pruning_rate"] * main_mask_blk_head.sum()
+            )  # Pruning Pruning_rate% of the paramters allowed by the main branch to be pruned
+
+            top_k_values, top_k_indices = torch.topk(can_be_pruned_flt, k)
+            prun_mask_blk_head = torch.ones_like(can_be_pruned_flt)
+            prun_mask_blk_head[top_k_indices] = 0
+
+            prun_mask_blk_head = prun_mask_blk_head.reshape(
+                (main_blk_attrs_iter_final.shape[2], main_blk_attrs_iter_final.shape[3])
+            )
+            main_mask_blk.append(main_mask_blk_head)
+            prun_mask_blk.append(prun_mask_blk_head)
+
+            if verbose == 2 and prun_iter_cnt == 0:
+                print(
+                    f"#params pruned in head {h+1}: {(num_tokens*num_tokens) - prun_mask_blk_head.sum()}/{(num_tokens*num_tokens)} \
+                    | Rate: {((num_tokens*num_tokens) - prun_mask_blk_head.sum())/(num_tokens*num_tokens)}"
+                )
+
+        main_mask_blk = torch.stack(main_mask_blk, dim=0)
+        prun_mask_blk = torch.stack(prun_mask_blk, dim=0)
+        main_mask.append(main_mask_blk)
+        prun_mask.append(prun_mask_blk)
+        if verbose == 2 and prun_iter_cnt == 0:
+            print(
+                f"@@@ #params pruned in block {blk_idx+1}: {(num_tokens*num_tokens*num_heads) - prun_mask_blk.sum()}/{(num_tokens*num_tokens*num_heads)} \
+                | Rate: {((num_tokens*num_tokens*num_heads) - prun_mask_blk.sum())/(num_tokens*num_tokens*num_heads)}"
+            )
+
+    main_mask = torch.stack(main_mask, dim=0)
+    prun_mask = torch.stack(prun_mask, dim=0)
+
+    # NEEDS FIXING: generalize it LATER
+    if prun_mask.shape[0] < num_blocks:
+        ones_tensor = torch.ones(
+            (num_blocks - prun_mask.shape[0],) + prun_mask.shape[1:],
+            dtype=prun_mask.dtype,
+            device=prun_mask.device,
+        )
+
+        # Concatenate the original tensor with the ones tensor along the first dimension
+        prun_mask = torch.cat([prun_mask, ones_tensor], dim=0)
+
+    return main_mask, prun_mask
+
+
+def run_pagerank(node_attr, attention_weights, model, config):
+
+    def aggregate_attr_scores(attr, method="combined"):
+
+        if attr.ndimension() != 4 or attr.size(2) != attr.size(3):
+            raise ValueError(
+                "attr must have shape (num_blocks, num_heads, num_tokens, num_tokens)"
+            )
+
+        if method == "outflow":
+            # Sum across rows to get outflow scores
+            token_attr_scores = torch.sum(attr, dim=-1)
+        elif method == "inflow":
+            # Sum across columns to get inflow scores
+            token_attr_scores = torch.sum(attr, dim=-2)
+        elif method == "combined":
+            # Sum across both rows and columns for combined scores
+            outflow_token_attr_scores = torch.sum(attr, dim=-1)
+            inflow_token_attr_scores = torch.sum(attr, dim=-2)
+            token_attr_scores = outflow_token_attr_scores + inflow_token_attr_scores
+        else:
+            raise ValueError(
+                "Invalid method. Choose 'outflow', 'inflow', or 'combined'."
+            )
+
+        return token_attr_scores
+
+    token_attr = aggregate_attr_scores(node_attr, method=config["prune"]["aggr_type"])
+
+    if token_attr.ndimension() != 3 or token_attr.size(2) != 197:
+        raise ValueError(
+            "token_attr must have shape (num_blocks, num_heads, num_tokens) and num_tokens must be 197"
+        )
+
+    num_blocks, num_heads, num_tokens = token_attr.size()
+
+    # Initialize the personalization vector for each node in the graph
+    initial_values = {}
+
+    for block_idx in range(num_blocks):
+        for head_idx in range(num_heads):
+            attribution_vector = token_attr[block_idx, head_idx, :]
+
+            # Normalize the subgraph attribution scores to sum to 1
+            total_sum = torch.sum(attribution_vector).item()
+            if total_sum == 0:
+                raise ValueError(
+                    "Sum of attribution scores in a subgraph cannot be zero."
+                )
+
+            normalized_vector = attribution_vector / total_sum
+
+            # Assign normalized values to the corresponding nodes
+            subgraph_nodes = [
+                tuple([block_idx, head_idx, token_idx])
+                for token_idx in range(num_tokens)
+            ]
+            for node, attr_value in zip(subgraph_nodes, normalized_vector):
+                initial_values[node] = attr_value.item()
+
+    assert list(model.graph.nodes) == list(initial_values.keys()), "Nodes mismatch"
+
+    # Run PageRank with the initial vector
+    pagerank_scores = nx.pagerank(
+        model.get_graph(),
+        alpha=config["prune"]["PR_alpha"],
+        nstart=initial_values,
+        max_iter=5000,
+        weight="weight",
+    )
+
+    pagerank_tensor = torch.zeros((num_blocks, num_heads, num_tokens))
+
+    # Populate the tensor with the PageRank scores
+    for node, score in pagerank_scores.items():
+
+        block_idx, head_idx, token_idx = node
+        pagerank_tensor[block_idx, head_idx, token_idx] = score
+
+    def reverse_aggregate_attr_scores(token_attr, attention_weights, method="combined"):
+        num_blocks, num_heads, num_tokens = token_attr.shape
+
+        if attention_weights.ndimension() != 4 or attention_weights.size(
+            2
+        ) != attention_weights.size(3):
+            raise ValueError(
+                "attention_weights must have shape (num_blocks, num_heads, num_tokens, num_tokens)"
+            )
+
+        # Initialize node attributions tensor
+        node_attr_scores = torch.zeros(
+            num_blocks,
+            num_heads,
+            num_tokens,
+            num_tokens,
+            dtype=token_attr.dtype,
+            device=token_attr.device,
+        )
+
+        if method == "outflow":
+            # Use attention weights to distribute token attribution scores across rows
+            for i in range(num_tokens):
+                node_attr_scores[:, :, i, :] = (
+                    token_attr[:, :, i].unsqueeze(-1) * attention_weights[:, :, i, :]
+                )
+        elif method == "inflow":
+            # Use attention weights to distribute token attribution scores across columns
+            for j in range(num_tokens):
+                node_attr_scores[:, :, :, j] = (
+                    token_attr[:, :, j].unsqueeze(-1) * attention_weights[:, :, :, j]
+                )
+        elif method == "combined":
+            # Distribute based on a combination of attention weights for inflow and outflow
+            for i in range(num_tokens):
+                for j in range(num_tokens):
+                    outflow_contrib = (
+                        token_attr[:, :, i] * attention_weights[:, :, i, j]
+                    )
+                    inflow_contrib = token_attr[:, :, j] * attention_weights[:, :, i, j]
+                    node_attr_scores[:, :, i, j] = (
+                        outflow_contrib + inflow_contrib
+                    ) / attention_weights[:, :, i, j].sum(-1, keepdim=True).clamp(
+                        min=1e-10
+                    )
+        else:
+            raise ValueError(
+                "Invalid method. Choose 'outflow', 'inflow', or 'combined'."
+            )
+
+        return node_attr
+
+    node_attr = reverse_aggregate_attr_scores(
+        token_attr=pagerank_tensor,
+        attention_weights=attention_weights,
+        method=config["prune"]["aggr_type"],
+    )
+
+    return node_attr
+
+
+def XTranPrune(
+    main_model,
+    SA_model,
+    dataloader,
+    device,
+    config,
+    prun_iter_cnt,
+    verbose=2,
+    MA_vectors=None,
+):
+
+    main_explainer = Explainer(main_model)
+    SA_explainer = Explainer(SA_model)
+
+    main_blk_attrs_iter, SA_blk_attrs_iter = get_attr_score(
+        main_explainer=main_explainer,
+        SA_explainer=SA_explainer,
+        dataloader=dataloader,
+        device=device,
+        config=config,
+    )
+
+    if config["prune"]["apply_pagerank"]:
+
+        main_edge_weights, SA_edge_weights = get_hooked_matrices(
+            main_model=main_model,
+            SA_model=SA_model,
+            dataloader=dataloader,
+            blk_mat_type=config["prune"]["edge_type"],
+            device=device,
+            config=config,
+        )
+
+        main_model.build_graph(
+            edge_weights=main_edge_weights.numpy(),
+            branch="main",
+            edge_type=config["prune"]["edge_type"],
+            prun_iter_cnt=prun_iter_cnt + 1,
+            # output_folder_path=config["output_folder_path"],
+        )
+        SA_model.build_graph(
+            edge_weights=SA_edge_weights.numpy(),
+            branch="SA",
+            edge_type=config["prune"]["edge_type"],
+            prun_iter_cnt=prun_iter_cnt + 1,
+            # output_folder_path=config["output_folder_path"],
+        )
+
+        print("Graphs built successfully. Running PageRank...")
+
+        main_blk_attrs_iter = run_pagerank(
+            node_attr=main_blk_attrs_iter,
+            attention_weights=main_edge_weights,
+            model=main_model,
+            config=config,
+        )
+        SA_blk_attrs_iter = run_pagerank(
+            node_attr=SA_blk_attrs_iter,
+            attention_weights=SA_edge_weights,
+            model=SA_model,
+            config=config,
+        )
+
     torch.save(
         main_blk_attrs_iter,
         os.path.join(
@@ -191,7 +561,6 @@ def XTranPrune(
 
         main_blk_attrs_iter_final = main_blk_attrs_MA
         SA_blk_attrs_iter_final = SA_blk_attrs_MA
-
     elif config["prune"]["method"] == "MA_Uncertainty":
         main_blk_attrs_MA = MA_vectors[0]
         SA_blk_attrs_MA = MA_vectors[1]
@@ -244,60 +613,10 @@ def XTranPrune(
 
     ###############################  Generating the pruning mask ###############################
 
-    main_mask = []
-    prun_mask = []
-
-    for blk_idx in range(main_blk_attrs_iter_final.shape[0]):
-        main_mask_blk = []
-        prun_mask_blk = []
-        for h in range(main_blk_attrs_iter_final.shape[1]):
-            # Generating the main mask
-            main_attrs_flt = main_blk_attrs_iter_final[blk_idx][h].flatten()
-
-            threshold = torch.quantile(
-                main_attrs_flt, 1 - config["prune"]["main_mask_retain_rate"]
-            )  # (this param)% of the most important main params will be retained
-
-            main_mask_blk_head = (
-                main_blk_attrs_iter_final[blk_idx][h] < threshold
-            ).float()
-
-            # Generating the pruning mask from SA branch
-            can_be_pruned = SA_blk_attrs_iter_final[blk_idx][h] * main_mask_blk_head
-            can_be_pruned_flt = can_be_pruned.flatten()
-
-            k = int(
-                config["prune"]["pruning_rate"] * main_mask_blk_head.sum()
-            )  # Pruning Pruning_rate% of the paramters allowed by the main branch to be pruned
-
-            top_k_values, top_k_indices = torch.topk(can_be_pruned_flt, k)
-            prun_mask_blk_head = torch.ones_like(can_be_pruned_flt)
-            prun_mask_blk_head[top_k_indices] = 0
-
-            prun_mask_blk_head = prun_mask_blk_head.reshape(
-                (main_blk_attrs_iter_final.shape[2], main_blk_attrs_iter_final.shape[3])
-            )
-            main_mask_blk.append(main_mask_blk_head)
-            prun_mask_blk.append(prun_mask_blk_head)
-
-            if verbose == 2 and prun_iter_cnt == 0:
-                print(
-                    f"#params pruned in head {h+1}: {(num_tokens*num_tokens) - prun_mask_blk_head.sum()}/{(num_tokens*num_tokens)} \
-                    | Rate: {((num_tokens*num_tokens) - prun_mask_blk_head.sum())/(num_tokens*num_tokens)}"
-                )
-
-        main_mask_blk = torch.stack(main_mask_blk, dim=0)
-        prun_mask_blk = torch.stack(prun_mask_blk, dim=0)
-        main_mask.append(main_mask_blk)
-        prun_mask.append(prun_mask_blk)
-        if verbose == 2 and prun_iter_cnt == 0:
-            print(
-                f"@@@ #params pruned in block {blk_idx+1}: {(num_tokens*num_tokens*main_model.num_heads) - prun_mask_blk.sum()}/{(num_tokens*num_tokens*main_model.num_heads)} \
-                | Rate: {((num_tokens*num_tokens*main_model.num_heads) - prun_mask_blk.sum())/(num_tokens*num_tokens*main_model.num_heads)}"
-            )
-
-    main_mask = torch.stack(main_mask, dim=0)
-    prun_mask = torch.stack(prun_mask, dim=0)
+    print("Generating the pruning mask...")
+    main_mask, prun_mask = generate_pruning_mask(
+        main_blk_attrs_iter_final, SA_blk_attrs_iter_final, prun_iter_cnt
+    )
 
     torch.save(
         main_mask,
@@ -315,17 +634,6 @@ def XTranPrune(
             f"pruning_mask_Iter={prun_iter_cnt + 1}.pth",
         ),
     )
-
-    # NEEDS FIXING: generalize it LATER
-    if prun_mask.shape[0] < main_model.depth:
-        ones_tensor = torch.ones(
-            (main_model.depth - prun_mask.shape[0],) + prun_mask.shape[1:],
-            dtype=prun_mask.dtype,
-            device=prun_mask.device,
-        )
-
-        # Concatenate the original tensor with the ones tensor along the first dimension
-        prun_mask = torch.cat([prun_mask, ones_tensor], dim=0)
 
     prev_mask = main_model.get_attn_pruning_mask()
 
@@ -389,7 +697,7 @@ def main(config, args):
             Generated_csv_path=config["Generated_csv_path"],
             sampler_type=config["prune"]["sampler_type"],
             dataset_name=config["dataset_name"],
-            stratify_cols=config["train"]["stratify_cols"],
+            stratify_cols=config["prune"]["stratify_cols"],
             main_level=config["train"]["main_level"],
             SA_level=config["train"]["SA_level"],
             batch_size=config["prune"]["batch_size"],

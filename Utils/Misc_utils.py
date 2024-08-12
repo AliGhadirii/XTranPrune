@@ -102,6 +102,8 @@ class Logger(object):
 
 
 def get_stat(tensor):
+    if isinstance(tensor, np.ndarray):
+        tensor = torch.from_numpy(tensor)
     return [
         torch.min(tensor).item(),
         torch.quantile(tensor, 0.25).item(),

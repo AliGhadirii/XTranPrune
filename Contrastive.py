@@ -18,28 +18,82 @@ from Explainability.ViT_Explainer import Explainer
 from Evaluation import eval_model
 
 
-def Contrastive(
-    model,
-    dataloader,
-    device,
-    config,
-    prun_iter_cnt,
-    verbose=2,
-    MA_vectors=None,
-):
+def get_hooked_matrices(model, dataloader, blk_mat_type, device, config):
+
     DL_iter = iter(dataloader)
 
-    explainer = Explainer(model)
-
-    ###############################  Getting the attribution vectors for all nodes in both branches ###############################
-
     num_tokens = model.patch_embed.num_patches + 1
-    blk_attrs_shape = (
+    blk_mat_shape = (
         model.depth,
         model.num_heads,
         num_tokens,
         num_tokens,
     )
+
+    blk_mat_iter = torch.zeros(blk_mat_shape).to(device)
+
+    for itr in tqdm(
+        range(config["prune"]["num_batch_per_iter"]),
+        total=config["prune"]["num_batch_per_iter"],
+        desc="Iterating over batches",
+    ):
+
+        try:
+            batch = next(DL_iter)
+        except StopIteration:
+            DL_iter = iter(dataloader)
+            batch = next(DL_iter)
+
+        inputs = batch["image"].to(device)
+        output = model(inputs)
+
+        if blk_mat_type == "attention_weights":
+            blk_mat_batch = (
+                torch.stack(
+                    [
+                        model.blocks[block_idx].attn.get_attn_map().mean(dim=0)
+                        for block_idx in range(model.depth)
+                    ],
+                    dim=0,
+                )
+                .detach()
+                .cpu()
+            )
+
+        elif blk_mat_type == "gradients":
+            blk_mat_batch = (
+                torch.stack(
+                    [
+                        model.blocks[block_idx].attn.get_attn_gradients().mean(dim=0)
+                        for block_idx in range(model.depth)
+                    ],
+                    dim=0,
+                )
+                .detach()
+                .cpu()
+            )
+        blk_mat_iter = blk_mat_iter + blk_mat_batch
+
+    blk_mat_iter = blk_mat_iter / config["prune"]["num_batch_per_iter"]
+    return blk_mat_iter
+
+
+def get_attr_score(explainer, dataloader, blk_attrs_shape, device, config):
+    """
+    Calculate the attribute scores for each block in the input images.
+
+    Args:
+        explainer (Explainer): The explainer object used to generate attribute scores.
+        dataloader (DataLoader): The data loader object containing the input images.
+        blk_attrs_shape (tuple): The shape of the block attribute tensor.
+        device (torch.device): The device to perform the calculations on.
+        config (dict): The configuration parameters for the attribute scoring.
+
+    Returns:
+        tuple: A tuple containing the blk_attrs_iter, S0_blk_attrs_iter, S1_blk_attrs_iter.
+    """
+    DL_iter = iter(dataloader)
+
     blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
     S0_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
     S1_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
@@ -198,6 +252,30 @@ def Contrastive(
     blk_attrs_iter = blk_attrs_iter / config["prune"]["num_batch_per_iter"]
     S0_blk_attrs_iter = S0_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
     S1_blk_attrs_iter = S1_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
+
+    return blk_attrs_iter, S0_blk_attrs_iter, S1_blk_attrs_iter
+
+
+def Contrastive(
+    model,
+    dataloader,
+    device,
+    config,
+    prun_iter_cnt,
+    verbose=2,
+    MA_vectors=None,
+):
+
+    explainer = Explainer(model)
+    num_tokens = model.patch_embed.num_patches + 1
+    blk_attrs_shape = (
+        model.depth,
+        model.num_heads,
+        num_tokens,
+        num_tokens,
+    )
+    #################  Getting the attribution vectors for all nodes in both branches #################
+    blk_attrs_iter, S0_blk_attrs_iter, S1_blk_attrs_iter = get_attr_score()
 
     torch.save(
         blk_attrs_iter,
