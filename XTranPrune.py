@@ -11,7 +11,13 @@ from pprint import pprint
 import torch
 import networkx as nx
 
-from Utils.Misc_utils import set_seeds, Logger, get_stat, get_mask_idx
+from Utils.Misc_utils import (
+    set_seeds,
+    Logger,
+    preprocess_matrix,
+    get_stat,
+    get_mask_idx,
+)
 from Utils.Metrics import plot_metrics
 from Datasets.dataloaders import get_dataloaders
 from Models.ViT_LRP import deit_small_patch16_224
@@ -19,122 +25,46 @@ from Explainability.ViT_Explainer import Explainer
 from Evaluation import eval_model
 
 
-def get_hooked_matrices(main_model, SA_model, dataloader, blk_mat_type, device, config):
+def get_required_matrices(
+    main_model,
+    SA_model,
+    dataloader,
+    device,
+    config,
+    required_matrices=["attr", "attn"],
+):
+
+    assert all(
+        param in ["attr", "attn", "grad"] for param in required_matrices
+    ), "Not all provided elements are in the required_matrices list."
 
     DL_iter = iter(dataloader)
 
     num_tokens = main_model.patch_embed.num_patches + 1
-    blk_mat_shape = (
+    matrix_shape = (
         main_model.depth,
         main_model.num_heads,
         num_tokens,
         num_tokens,
     )
 
-    main_blk_mat_iter = torch.zeros(blk_mat_shape).to(device)
-    SA_blk_mat_iter = torch.zeros(blk_mat_shape).to(device)
+    if "attr" in required_matrices:
+        main_explainer = Explainer(main_model)
+        SA_explainer = Explainer(SA_model)
+
+        main_attr_iter = torch.zeros(matrix_shape).to(device)
+        SA_attr_iter = torch.zeros(matrix_shape).to(device)
+    if "attn" in required_matrices:
+        main_attn_iter = torch.zeros(matrix_shape).to(device)
+        SA_attn_iter = torch.zeros(matrix_shape).to(device)
+    if "grad" in required_matrices:
+        main_grad_iter = torch.zeros(matrix_shape).to(device)
+        SA_grad_iter = torch.zeros(matrix_shape).to(device)
 
     for itr in tqdm(
         range(config["prune"]["num_batch_per_iter"]),
         total=config["prune"]["num_batch_per_iter"],
-        desc="Getting hooked matrices",
-    ):
-
-        try:
-            batch = next(DL_iter)
-        except StopIteration:
-            DL_iter = iter(dataloader)
-            batch = next(DL_iter)
-
-        inputs = batch["image"].to(device)
-        main_output = main_model(inputs)
-        SA_output = SA_model(inputs)
-
-        if blk_mat_type == "attention_weights":
-            main_blk_mat_batch = torch.stack(
-                [
-                    main_model.blocks[block_idx]
-                    .attn.get_attn_map()
-                    .mean(dim=0)
-                    .detach()
-                    for block_idx in range(main_model.depth)
-                ],
-                dim=0,
-            )
-            SA_blk_mat_batch = torch.stack(
-                [
-                    SA_model.blocks[block_idx].attn.get_attn_map().mean(dim=0).detach()
-                    for block_idx in range(SA_model.depth)
-                ],
-                dim=0,
-            )
-
-        elif blk_mat_type == "gradients":
-            main_blk_mat_batch = torch.stack(
-                [
-                    main_model.blocks[block_idx]
-                    .attn.get_attn_gradients()
-                    .mean(dim=0)
-                    .detach()
-                    for block_idx in range(main_model.depth)
-                ],
-                dim=0,
-            )
-            SA_blk_mat_batch = torch.stack(
-                [
-                    SA_model.blocks[block_idx]
-                    .attn.get_attn_gradients()
-                    .mean(dim=0)
-                    .detach()
-                    for block_idx in range(SA_model.depth)
-                ],
-                dim=0,
-            )
-        else:
-            raise ValueError("Invalid block matrix type.")
-
-        main_blk_mat_iter = main_blk_mat_iter + main_blk_mat_batch
-        SA_blk_mat_iter = SA_blk_mat_iter + SA_blk_mat_batch
-        main_blk_mat_batch = None
-        SA_blk_mat_batch = None
-
-    main_blk_mat_iter = main_blk_mat_iter / config["prune"]["num_batch_per_iter"]
-    SA_blk_mat_iter = SA_blk_mat_iter / config["prune"]["num_batch_per_iter"]
-
-    return main_blk_mat_iter.cpu(), SA_blk_mat_iter.cpu()
-
-
-def get_attr_score(main_explainer, SA_explainer, dataloader, device, config):
-    """
-    Calculate the attribute scores for the main and SA levels.
-
-    Args:
-        main_explainer (Explainer): The explainer for the main level.
-        SA_explainer (Explainer): The explainer for the SA level.
-        blk_attrs_shape (tuple): The shape of the block attributes.
-        dataloader (DataLoader): The data loader for the dataset.
-        device (torch.device): The device to perform computations on.
-        config (dict): The configuration parameters.
-
-    Returns:
-        tuple: A tuple containing the attribute scores for the main and SA levels.
-    """
-    DL_iter = iter(dataloader)
-
-    num_tokens = main_explainer.model.patch_embed.num_patches + 1
-    blk_attrs_shape = (
-        main_explainer.model.depth,
-        main_explainer.model.num_heads,
-        num_tokens,
-        num_tokens,
-    )
-    main_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
-    SA_blk_attrs_iter = torch.zeros(blk_attrs_shape).to(device)
-
-    for itr in tqdm(
-        range(config["prune"]["num_batch_per_iter"]),
-        total=config["prune"]["num_batch_per_iter"],
-        desc="Generating node attributions",
+        desc="Generating node-level required matrices",
     ):
 
         try:
@@ -147,129 +77,189 @@ def get_attr_score(main_explainer, SA_explainer, dataloader, device, config):
         main_labels = batch[config["train"]["main_level"]].to(device)
         SA_labels = batch[config["train"]["SA_level"]].to(device)
 
-        main_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
-        SA_blk_attrs_batch = torch.zeros(blk_attrs_shape).to(device)
+        if "attr" in required_matrices:
 
-        for i in range(inputs.shape[0]):  # iterate over batch size
-            if config["prune"]["cont_method"] == "attn":
-                main_blk_attrs_input = main_explainer.generate_attn(
-                    input=inputs[i].unsqueeze(0)
+            main_attr_batch = torch.zeros(matrix_shape).to(device)
+            SA_attr_batch = torch.zeros(matrix_shape).to(device)
+
+            for i in range(inputs.shape[0]):
+                if config["prune"]["cont_method"] == "attn":
+                    main_attr_input = main_explainer.generate_attn(
+                        input=inputs[i].unsqueeze(0)
+                    )
+                    SA_attr_input = SA_explainer.generate_attn(
+                        input=inputs[i].unsqueeze(0)
+                    )
+                elif config["prune"]["cont_method"] == "TranInter":
+                    _, main_attr_input = main_explainer.generate_TranInter(
+                        input=inputs[i].unsqueeze(0),
+                        index=main_labels[i],
+                    )
+                    _, SA_attr_input = SA_explainer.generate_TranInter(
+                        input=inputs[i].unsqueeze(0),
+                        index=SA_labels[i],
+                    )
+                elif config["prune"]["cont_method"] == "TAM":
+
+                    _, main_attr_input = main_explainer.generate_TAM(
+                        input=inputs[i].unsqueeze(0),
+                        index=main_labels[i],
+                        start_layer=0,
+                        steps=10,
+                    )
+                    _, SA_attr_input = SA_explainer.generate_TAM(
+                        input=inputs[i].unsqueeze(0),
+                        index=SA_labels[i],
+                        start_layer=0,
+                        steps=10,
+                    )
+                    main_attr_input = main_attr_input.squeeze(0)
+                    SA_attr_input = SA_attr_input.squeeze(0)
+                elif config["prune"]["cont_method"] == "AttrRoll":
+
+                    _, main_attr_input = main_explainer.generate_AttrRoll(
+                        input=inputs[i].unsqueeze(0), index=main_labels[i]
+                    )
+                    _, SA_attr_input = SA_explainer.generate_AttrRoll(
+                        input=inputs[i].unsqueeze(0), index=SA_labels[i]
+                    )
+                elif config["prune"]["cont_method"] == "FTaylor":
+                    main_attr_input = main_explainer.generate_FTaylor(
+                        input=inputs[i].unsqueeze(0),
+                        index=main_labels[i],
+                    )
+                    SA_attr_input = SA_explainer.generate_FTaylor(
+                        input=inputs[i].unsqueeze(0),
+                        index=SA_labels[i],
+                    )
+                elif config["prune"]["cont_method"] == "FTaylorpow2":
+                    main_attr_input = main_explainer.generate_FTaylorpow2(
+                        input=inputs[i].unsqueeze(0),
+                        index=main_labels[i],
+                    )
+                    SA_attr_input = SA_explainer.generate_FTaylorpow2(
+                        input=inputs[i].unsqueeze(0),
+                        index=SA_labels[i],
+                    )
+                else:
+                    _, main_attr_input = main_explainer.generate_LRP(
+                        input=inputs[i].unsqueeze(0),
+                        index=main_labels[i],
+                        method=config["prune"]["cont_method"],
+                    )
+                    _, SA_attr_input = SA_explainer.generate_LRP(
+                        input=inputs[i].unsqueeze(0),
+                        index=SA_labels[i],
+                        method=config["prune"]["cont_method"],
+                    )
+
+                main_attr_batch = main_attr_batch + main_attr_input.detach()
+                SA_attr_batch = SA_attr_batch + SA_attr_input.detach()
+
+                main_attr_input = None
+                SA_attr_input = None
+
+            # Averaging the block importances for the batch
+            main_attr_batch = main_attr_batch / inputs.shape[0]
+            SA_attr_batch = SA_attr_batch / inputs.shape[0]
+
+            main_attr_iter = main_attr_iter + main_attr_batch
+            SA_attr_iter = SA_attr_iter + SA_attr_batch
+
+        if "attn" in required_matrices or "grad" in required_matrices:
+            main_output = main_model(inputs)
+            SA_output = SA_model(inputs)
+            if "attn" in required_matrices:
+                main_attn_batch = torch.stack(
+                    [
+                        main_model.blocks[block_idx]
+                        .attn.get_attn_map()
+                        .mean(dim=0)
+                        .detach()
+                        for block_idx in range(main_model.depth)
+                    ],
+                    dim=0,
                 )
-                SA_blk_attrs_input = SA_explainer.generate_attn(
-                    input=inputs[i].unsqueeze(0)
-                )
-            elif config["prune"]["cont_method"] == "TranInter":
-                _, main_blk_attrs_input = main_explainer.generate_TranInter(
-                    input=inputs[i].unsqueeze(0),
-                    index=main_labels[i],
-                )
-                _, SA_blk_attrs_input = SA_explainer.generate_TranInter(
-                    input=inputs[i].unsqueeze(0),
-                    index=SA_labels[i],
+                SA_attn_batch = torch.stack(
+                    [
+                        SA_model.blocks[block_idx]
+                        .attn.get_attn_map()
+                        .mean(dim=0)
+                        .detach()
+                        for block_idx in range(SA_model.depth)
+                    ],
+                    dim=0,
                 )
 
-            elif config["prune"]["cont_method"] == "TAM":
+                main_attn_iter = main_attn_iter + main_attn_batch
+                SA_attn_iter = SA_attn_iter + SA_attn_batch
+            if "grad" in required_matrices:
+                main_grad_batch = torch.stack(
+                    [
+                        main_model.blocks[block_idx]
+                        .attn.get_attn_gradients()
+                        .mean(dim=0)
+                        .detach()
+                        for block_idx in range(main_model.depth)
+                    ],
+                    dim=0,
+                )
+                SA_grad_batch = torch.stack(
+                    [
+                        SA_model.blocks[block_idx]
+                        .attn.get_attn_gradients()
+                        .mean(dim=0)
+                        .detach()
+                        for block_idx in range(SA_model.depth)
+                    ],
+                    dim=0,
+                )
+                main_grad_iter = main_grad_iter + main_grad_batch
+                SA_grad_iter = SA_grad_iter + SA_grad_batch
 
-                _, main_blk_attrs_input = main_explainer.generate_TAM(
-                    input=inputs[i].unsqueeze(0),
-                    index=main_labels[i],
-                    start_layer=0,
-                    steps=10,
-                )
-                _, SA_blk_attrs_input = SA_explainer.generate_TAM(
-                    input=inputs[i].unsqueeze(0),
-                    index=SA_labels[i],
-                    start_layer=0,
-                    steps=10,
-                )
-                main_blk_attrs_input = main_blk_attrs_input.squeeze(0)
-                SA_blk_attrs_input = SA_blk_attrs_input.squeeze(0)
-            elif config["prune"]["cont_method"] == "AttrRoll":
+    response = {}
 
-                _, main_blk_attrs_input = main_explainer.generate_AttrRoll(
-                    input=inputs[i].unsqueeze(0), index=main_labels[i]
-                )
-                _, SA_blk_attrs_input = SA_explainer.generate_AttrRoll(
-                    input=inputs[i].unsqueeze(0), index=SA_labels[i]
-                )
-            elif config["prune"]["cont_method"] == "FTaylor":
-                main_blk_attrs_input = main_explainer.generate_FTaylor(
-                    input=inputs[i].unsqueeze(0),
-                    index=main_labels[i],
-                )
-                SA_blk_attrs_input = SA_explainer.generate_FTaylor(
-                    input=inputs[i].unsqueeze(0),
-                    index=SA_labels[i],
-                )
-            elif config["prune"]["cont_method"] == "FTaylorpow2":
-                main_blk_attrs_input = main_explainer.generate_FTaylorpow2(
-                    input=inputs[i].unsqueeze(0),
-                    index=main_labels[i],
-                )
-                SA_blk_attrs_input = SA_explainer.generate_FTaylorpow2(
-                    input=inputs[i].unsqueeze(0),
-                    index=SA_labels[i],
-                )
-            else:
-                _, main_blk_attrs_input = main_explainer.generate_LRP(
-                    input=inputs[i].unsqueeze(0),
-                    index=main_labels[i],
-                    method=config["prune"]["cont_method"],
-                )
-                _, SA_blk_attrs_input = SA_explainer.generate_LRP(
-                    input=inputs[i].unsqueeze(0),
-                    index=SA_labels[i],
-                    method=config["prune"]["cont_method"],
-                )
+    if "attr" in required_matrices:
+        main_attr_iter = main_attr_iter / config["prune"]["num_batch_per_iter"]
+        SA_attr_iter = SA_attr_iter / config["prune"]["num_batch_per_iter"]
+        response["attr"] = (main_attr_iter, SA_attr_iter)
+    if "attn" in required_matrices:
+        main_attn_iter = main_attn_iter / config["prune"]["num_batch_per_iter"]
+        SA_attn_iter = SA_attn_iter / config["prune"]["num_batch_per_iter"]
+        response["attn"] = (main_attn_iter, SA_attn_iter)
+    if "grad" in required_matrices:
+        main_grad_iter = main_grad_iter / config["prune"]["num_batch_per_iter"]
+        SA_grad_iter = SA_grad_iter / config["prune"]["num_batch_per_iter"]
+        response["grad"] = (main_grad_iter, SA_grad_iter)
 
-            main_blk_attrs_batch = main_blk_attrs_batch + main_blk_attrs_input.detach()
-            SA_blk_attrs_batch = SA_blk_attrs_batch + SA_blk_attrs_input.detach()
-
-            main_blk_attrs_input = None
-            SA_blk_attrs_input = None
-
-        # Averaging the block importances for the batch
-        main_blk_attrs_batch = main_blk_attrs_batch / inputs.shape[0]
-        SA_blk_attrs_batch = SA_blk_attrs_batch / inputs.shape[0]
-
-        main_blk_attrs_iter = main_blk_attrs_iter + main_blk_attrs_batch
-        SA_blk_attrs_iter = SA_blk_attrs_iter + SA_blk_attrs_batch
-
-    main_blk_attrs_iter = main_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
-    SA_blk_attrs_iter = SA_blk_attrs_iter / config["prune"]["num_batch_per_iter"]
-
-    return main_blk_attrs_iter, SA_blk_attrs_iter
+    return response
 
 
-def generate_pruning_mask(
-    main_blk_attrs_iter_final, SA_blk_attrs_iter_final, prun_iter_cnt, verbose=2
-):
+def generate_pruning_mask(main_attrs_final, SA_attrs_final, prun_iter_cnt, verbose=2):
     main_mask = []
     prun_mask = []
 
     num_blocks, num_heads, num_tokens = (
-        main_blk_attrs_iter_final.shape[0],
-        main_blk_attrs_iter_final.shape[1],
-        main_blk_attrs_iter_final.shape[2],
+        main_attrs_final.shape[0],
+        main_attrs_final.shape[1],
+        main_attrs_final.shape[2],
     )
 
-    for blk_idx in range(main_blk_attrs_iter_final.shape[0]):
+    for blk_idx in range(main_attrs_final.shape[0]):
         main_mask_blk = []
         prun_mask_blk = []
-        for h in range(main_blk_attrs_iter_final.shape[1]):
+        for h in range(main_attrs_final.shape[1]):
             # Generating the main mask
-            main_attrs_flt = main_blk_attrs_iter_final[blk_idx][h].flatten()
+            main_attrs_flt = main_attrs_final[blk_idx][h].flatten()
 
             threshold = torch.quantile(
                 main_attrs_flt, 1 - config["prune"]["main_mask_retain_rate"]
             )  # (this param)% of the most important main params will be retained
 
-            main_mask_blk_head = (
-                main_blk_attrs_iter_final[blk_idx][h] < threshold
-            ).float()
+            main_mask_blk_head = (main_attrs_final[blk_idx][h] < threshold).float()
 
             # Generating the pruning mask from SA branch
-            can_be_pruned = SA_blk_attrs_iter_final[blk_idx][h] * main_mask_blk_head
+            can_be_pruned = SA_attrs_final[blk_idx][h] * main_mask_blk_head
             can_be_pruned_flt = can_be_pruned.flatten()
 
             k = int(
@@ -281,7 +271,7 @@ def generate_pruning_mask(
             prun_mask_blk_head[top_k_indices] = 0
 
             prun_mask_blk_head = prun_mask_blk_head.reshape(
-                (main_blk_attrs_iter_final.shape[2], main_blk_attrs_iter_final.shape[3])
+                (main_attrs_final.shape[2], main_attrs_final.shape[3])
             )
             main_mask_blk.append(main_mask_blk_head)
             prun_mask_blk.append(prun_mask_blk_head)
@@ -319,7 +309,63 @@ def generate_pruning_mask(
     return main_mask, prun_mask
 
 
+def generate_pruning_mask_block_agnostic(
+    main_attrs_final, SA_attrs_final, prun_iter_cnt, verbose=2
+):
+    num_blocks, num_heads, num_tokens = (
+        main_attrs_final.shape[0],
+        main_attrs_final.shape[1],
+        main_attrs_final.shape[2],
+    )
+
+    # Generating the main mask
+    main_attrs_flt = main_attrs_final.flatten()
+
+    # (this param)% of the most important main params will be retained
+    threshold = torch.quantile(
+        main_attrs_flt, 1 - config["prune"]["main_mask_retain_rate"]
+    )
+
+    main_mask = (main_attrs_flt < threshold).float()
+
+    # Generating the pruning mask from SA branch
+    SA_attrs_flt = SA_attrs_final.flatten()
+    can_be_pruned = SA_attrs_flt * main_mask
+
+    # Pruning Pruning_rate% of the paramters allowed by the main branch to be pruned
+    k = int(config["prune"]["pruning_rate"] * main_mask.sum())
+
+    top_k_values, top_k_indices = torch.topk(can_be_pruned, k)
+    prun_mask = torch.ones_like(can_be_pruned)
+    prun_mask[top_k_indices] = 0
+
+    main_mask = main_mask.reshape((num_blocks, num_heads, num_tokens, num_tokens))
+    prun_mask = prun_mask.reshape((num_blocks, num_heads, num_tokens, num_tokens))
+
+    # printing stats
+    for b in range(num_blocks):
+        for h in range(num_heads):
+            prun_mask_blk_head = prun_mask[b][h]
+
+            if verbose == 2:
+                print(
+                    f"#params pruned in head {h+1}: {(num_tokens*num_tokens) - prun_mask_blk_head.sum()}/{(num_tokens*num_tokens)} \
+                    | Rate: {((num_tokens*num_tokens) - prun_mask_blk_head.sum())/(num_tokens*num_tokens)}"
+                )
+
+        prun_mask_blk = prun_mask[b]
+        if verbose == 2:
+            print(
+                f"@@@ #params pruned in block {b+1}: {(num_tokens*num_tokens*num_heads) - prun_mask_blk.sum()}/{(num_tokens*num_tokens*num_heads)} \
+                | Rate: {((num_tokens*num_tokens*num_heads) - prun_mask_blk.sum())/(num_tokens*num_tokens*num_heads)}"
+            )
+
+    return main_mask, prun_mask
+
+
 def run_pagerank(node_attr, attention_weights, model, config):
+
+    node_attr_copy = node_attr
 
     def aggregate_attr_scores(attr, method="combined"):
 
@@ -386,11 +432,14 @@ def run_pagerank(node_attr, attention_weights, model, config):
         model.get_graph(),
         alpha=config["prune"]["PR_alpha"],
         nstart=initial_values,
-        max_iter=5000,
+        max_iter=int(1e07),
+        tol=1e-06,
         weight="weight",
     )
 
-    pagerank_tensor = torch.zeros((num_blocks, num_heads, num_tokens))
+    pagerank_tensor = torch.zeros((num_blocks, num_heads, num_tokens)).to(
+        node_attr.device
+    )
 
     # Populate the tensor with the PageRank scores
     for node, score in pagerank_scores.items():
@@ -443,17 +492,29 @@ def run_pagerank(node_attr, attention_weights, model, config):
                     ) / attention_weights[:, :, i, j].sum(-1, keepdim=True).clamp(
                         min=1e-10
                     )
+                    # # Normalize outflow and inflow contributions before combining
+                    # outflow_contrib = (
+                    #     outflow_contrib / attention_weights[:, :, i, :].sum(-1, keepdim=True).clamp(min=1e-10)
+                    # )
+                    # inflow_contrib = (
+                    #     inflow_contrib / attention_weights[:, :, :, j].sum(-2, keepdim=True).clamp(min=1e-10)
+                    # )
+
+                    # node_attr_scores[:, :, i, j] = outflow_contrib + inflow_contrib
         else:
             raise ValueError(
                 "Invalid method. Choose 'outflow', 'inflow', or 'combined'."
             )
 
-        return node_attr
+        return node_attr_scores
 
     node_attr = reverse_aggregate_attr_scores(
         token_attr=pagerank_tensor,
         attention_weights=attention_weights,
         method=config["prune"]["aggr_type"],
+    )
+    print(
+        f"pagerank input == pagerank output: {torch.equal(node_attr, node_attr_copy)}"
     )
 
     return node_attr
@@ -469,38 +530,73 @@ def XTranPrune(
     verbose=2,
     MA_vectors=None,
 ):
+    required_matrices = ["attr"]
 
-    main_explainer = Explainer(main_model)
-    SA_explainer = Explainer(SA_model)
+    if config["prune"]["apply_pagerank"]:
+        if config["prune"]["edge_type"] == "attention_weights":
+            required_matrices.append("attn")
+        elif config["prune"]["edge_type"] == "gradients":
+            required_matrices.append("grad")
+        else:
+            raise ValueError("Invalid edge type.")
 
-    main_blk_attrs_iter, SA_blk_attrs_iter = get_attr_score(
-        main_explainer=main_explainer,
-        SA_explainer=SA_explainer,
+    matrices = get_required_matrices(
+        main_model=main_model,
+        SA_model=SA_model,
         dataloader=dataloader,
         device=device,
         config=config,
+        required_matrices=required_matrices,
     )
+
+    main_attrs, SA_attrs = matrices["attr"]
 
     if config["prune"]["apply_pagerank"]:
 
-        main_edge_weights, SA_edge_weights = get_hooked_matrices(
-            main_model=main_model,
-            SA_model=SA_model,
-            dataloader=dataloader,
-            blk_mat_type=config["prune"]["edge_type"],
-            device=device,
-            config=config,
+        if config["prune"]["edge_type"] == "attention_weights":
+            main_edge_weights, SA_edge_weights = matrices["attn"]
+        elif config["prune"]["edge_type"] == "gradients":
+            main_edge_weights, SA_edge_weights = matrices["grad"]
+
+        print("EDGE WEIGHTS: Before preprocessing ...")
+        for i in range(main_edge_weights.shape[0]):
+            for j in range(main_edge_weights.shape[1]):
+                print(get_stat(main_edge_weights[i][j]))
+
+        print("Preprocessing the edge weights...")
+        main_edge_weights = preprocess_matrix(
+            main_edge_weights,
+            clip_threshold=1e-6,
+            log_transform=True,
+            normalize=True,
+            min_max_scale=True,
+        )
+        SA_edge_weights = preprocess_matrix(
+            SA_edge_weights,
+            clip_threshold=1e-6,
+            log_transform=True,
+            normalize=True,
+            min_max_scale=True,
         )
 
+        print("EDGE WEIGHTS: After preprocessing ...")
+        for i in range(main_edge_weights.shape[0]):
+            for j in range(main_edge_weights.shape[1]):
+                print(get_stat(main_edge_weights[i][j]))
+        print(
+            "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+        )
+
+        print("Building the graphs...")
         main_model.build_graph(
-            edge_weights=main_edge_weights.numpy(),
+            edge_weights=main_edge_weights.cpu().numpy(),
             branch="main",
             edge_type=config["prune"]["edge_type"],
             prun_iter_cnt=prun_iter_cnt + 1,
             # output_folder_path=config["output_folder_path"],
         )
         SA_model.build_graph(
-            edge_weights=SA_edge_weights.numpy(),
+            edge_weights=SA_edge_weights.cpu().numpy(),
             branch="SA",
             edge_type=config["prune"]["edge_type"],
             prun_iter_cnt=prun_iter_cnt + 1,
@@ -509,21 +605,65 @@ def XTranPrune(
 
         print("Graphs built successfully. Running PageRank...")
 
-        main_blk_attrs_iter = run_pagerank(
-            node_attr=main_blk_attrs_iter,
+        # print("NODE PAGERANK SCORES (ATTR): Before preprocessing ...")
+
+        # for i in range(main_attrs.shape[0]):
+        #     for j in range(main_attrs.shape[1]):
+        #         print(get_stat(main_attrs[i][j]))
+
+        # main_attrs = preprocess_matrix(
+        #     main_attrs,
+        #     clip_threshold=1e-6,
+        #     log_transform=True,
+        #     normalize=True,
+        #     min_max_scale=True,
+        # )
+        # SA_attrs = preprocess_matrix(
+        #     SA_attrs,
+        #     clip_threshold=1e-6,
+        #     log_transform=True,
+        #     normalize=True,
+        #     min_max_scale=True,
+        # )
+
+        # print("NODE PAGERANK SCORES (ATTR): After preprocessing ...")
+        # for i in range(main_attrs.shape[0]):
+        #     for j in range(main_attrs.shape[1]):
+        #         print(get_stat(main_attrs[i][j]))
+
+        # print(
+        #     "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+        # )
+        
+        print("NODE PAGERANK SCORES (ATTR): Before Pagerank ...")
+        for i in range(main_attrs.shape[0]):
+            for j in range(main_attrs.shape[1]):
+                print(get_stat(main_attrs[i][j]))
+
+        print(
+            "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+        )
+
+        main_attrs = run_pagerank(
+            node_attr=main_attrs,
             attention_weights=main_edge_weights,
             model=main_model,
             config=config,
         )
-        SA_blk_attrs_iter = run_pagerank(
-            node_attr=SA_blk_attrs_iter,
+        SA_attrs = run_pagerank(
+            node_attr=SA_attrs,
             attention_weights=SA_edge_weights,
             model=SA_model,
             config=config,
         )
 
+        print("NODE PAGERANK SCORES (ATTR): After running Pagerank ...")
+        for i in range(main_attrs.shape[0]):
+            for j in range(main_attrs.shape[1]):
+                print(get_stat(main_attrs[i][j]))
+
     torch.save(
-        main_blk_attrs_iter,
+        main_attrs,
         os.path.join(
             config["output_folder_path"],
             "Log_files",
@@ -531,7 +671,7 @@ def XTranPrune(
         ),
     )
     torch.save(
-        SA_blk_attrs_iter,
+        SA_attrs,
         os.path.join(
             config["output_folder_path"],
             "Log_files",
@@ -542,81 +682,75 @@ def XTranPrune(
     # getting the moving average of attribution vectors and measuing the uncertainty
     if config["prune"]["method"] == "MA":
 
-        main_blk_attrs_MA = MA_vectors[0]
-        SA_blk_attrs_MA = MA_vectors[1]
+        main_attrs_MA = MA_vectors[0]
+        SA_attrs_MA = MA_vectors[1]
 
-        if main_blk_attrs_MA == None:
-            main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter)
-        if SA_blk_attrs_MA == None:
-            SA_blk_attrs_MA = torch.zeros_like(SA_blk_attrs_iter)
+        if main_attrs_MA == None:
+            main_attrs_MA = torch.zeros_like(main_attrs)
+        if SA_attrs_MA == None:
+            SA_attrs_MA = torch.zeros_like(SA_attrs)
 
         beta1 = config["prune"]["beta1"]
-        main_blk_attrs_MA = (
-            beta1 * main_blk_attrs_MA + (1 - beta1) * main_blk_attrs_iter
-        )
-        SA_blk_attrs_MA = beta1 * SA_blk_attrs_MA + (1 - beta1) * SA_blk_attrs_iter
+        main_attrs_MA = beta1 * main_attrs_MA + (1 - beta1) * main_attrs
+        SA_attrs_MA = beta1 * SA_attrs_MA + (1 - beta1) * SA_attrs
 
-        MA_vectors[0] = main_blk_attrs_MA
-        MA_vectors[1] = SA_blk_attrs_MA
+        MA_vectors[0] = main_attrs_MA
+        MA_vectors[1] = SA_attrs_MA
 
-        main_blk_attrs_iter_final = main_blk_attrs_MA
-        SA_blk_attrs_iter_final = SA_blk_attrs_MA
+        main_attrs_final = main_attrs_MA
+        SA_attrs_final = SA_attrs_MA
     elif config["prune"]["method"] == "MA_Uncertainty":
-        main_blk_attrs_MA = MA_vectors[0]
-        SA_blk_attrs_MA = MA_vectors[1]
-        main_blk_Uncer_MA = MA_vectors[2]
-        SA_blk_Uncer_MA = MA_vectors[3]
+        main_attrs_MA = MA_vectors[0]
+        SA_attrs_MA = MA_vectors[1]
+        main_Uncer_MA = MA_vectors[2]
+        SA_Uncer_MA = MA_vectors[3]
 
-        if main_blk_attrs_MA == None:
-            main_blk_attrs_MA = torch.zeros_like(main_blk_attrs_iter)
-        if SA_blk_attrs_MA == None:
-            SA_blk_attrs_MA = torch.zeros_like(SA_blk_attrs_iter)
-        if main_blk_Uncer_MA == None:
-            main_blk_Uncer_MA = torch.zeros_like(main_blk_attrs_iter)
-        if SA_blk_Uncer_MA == None:
-            SA_blk_Uncer_MA = torch.zeros_like(SA_blk_attrs_iter)
+        if main_attrs_MA == None:
+            main_attrs_MA = torch.zeros_like(main_attrs)
+        if SA_attrs_MA == None:
+            SA_attrs_MA = torch.zeros_like(SA_attrs)
+        if main_Uncer_MA == None:
+            main_Uncer_MA = torch.zeros_like(main_attrs)
+        if SA_Uncer_MA == None:
+            SA_Uncer_MA = torch.zeros_like(SA_attrs)
 
         beta1 = config["prune"]["beta1"]
-        main_blk_attrs_MA = (
-            beta1 * main_blk_attrs_MA + (1 - beta1) * main_blk_attrs_iter
-        )
-        SA_blk_attrs_MA = beta1 * SA_blk_attrs_MA + (1 - beta1) * SA_blk_attrs_iter
+        main_attrs_MA = beta1 * main_attrs_MA + (1 - beta1) * main_attrs
+        SA_attrs_MA = beta1 * SA_attrs_MA + (1 - beta1) * SA_attrs
 
         beta2 = config["prune"]["beta2"]
-        main_blk_Uncer_MA = (
-            beta2 * main_blk_Uncer_MA
-            + (1 - beta2) * (main_blk_attrs_iter - main_blk_attrs_MA).abs()
+        main_Uncer_MA = (
+            beta2 * main_Uncer_MA + (1 - beta2) * (main_attrs - main_attrs_MA).abs()
         )
-        SA_blk_Uncer_MA = (
-            beta2 * SA_blk_Uncer_MA
-            + (1 - beta2) * (SA_blk_attrs_iter - SA_blk_attrs_MA).abs()
-        )
+        SA_Uncer_MA = beta2 * SA_Uncer_MA + (1 - beta2) * (SA_attrs - SA_attrs_MA).abs()
 
-        MA_vectors[0] = main_blk_attrs_MA
-        MA_vectors[1] = SA_blk_attrs_MA
-        MA_vectors[2] = main_blk_Uncer_MA
-        MA_vectors[3] = SA_blk_Uncer_MA
+        MA_vectors[0] = main_attrs_MA
+        MA_vectors[1] = SA_attrs_MA
+        MA_vectors[2] = main_Uncer_MA
+        MA_vectors[3] = SA_Uncer_MA
 
-        SA_blk_Uncer_MA_flt = SA_blk_Uncer_MA.view(
-            SA_blk_Uncer_MA.size(0), SA_blk_Uncer_MA.size(1), -1
-        )
-        SA_blk_Uncer_MA_max_values, _ = SA_blk_Uncer_MA_flt.max(dim=2, keepdim=True)
-        SA_blk_Uncer_MA_max_values = SA_blk_Uncer_MA_max_values.unsqueeze(2)
+        SA_Uncer_MA_flt = SA_Uncer_MA.view(SA_Uncer_MA.size(0), SA_Uncer_MA.size(1), -1)
+        SA_Uncer_MA_max_values, _ = SA_Uncer_MA_flt.max(dim=2, keepdim=True)
+        SA_Uncer_MA_max_values = SA_Uncer_MA_max_values.unsqueeze(2)
 
-        main_blk_attrs_iter_final = main_blk_attrs_MA * main_blk_Uncer_MA
-        SA_blk_attrs_iter_final = SA_blk_attrs_MA * (
-            SA_blk_Uncer_MA_max_values - SA_blk_Uncer_MA
-        )
+        main_attrs_final = main_attrs_MA * main_Uncer_MA
+        SA_attrs_final = SA_attrs_MA * (SA_Uncer_MA_max_values - SA_Uncer_MA)
     else:
-        main_blk_attrs_iter_final = main_blk_attrs_iter
-        SA_blk_attrs_iter_final = SA_blk_attrs_iter
+        main_attrs_final = main_attrs
+        SA_attrs_final = SA_attrs
 
     ###############################  Generating the pruning mask ###############################
 
-    print("Generating the pruning mask...")
-    main_mask, prun_mask = generate_pruning_mask(
-        main_blk_attrs_iter_final, SA_blk_attrs_iter_final, prun_iter_cnt
+    # if config["prune"]["apply_pagerank"]:
+    print("Generating the pruning mask (block-agnostic) ...")
+    main_mask, prun_mask = generate_pruning_mask_block_agnostic(
+        main_attrs_final, SA_attrs_final, prun_iter_cnt
     )
+    # else:
+    # print("Generating the pruning mask...")
+    # main_mask, prun_mask = generate_pruning_mask(
+    #     main_attrs_final, SA_attrs_final, prun_iter_cnt
+    # )
 
     torch.save(
         main_mask,
@@ -783,16 +917,16 @@ def main(config, args):
     consecutive_no_improvement = 0
     best_bias_metric = config["prune"]["bias_metric_prev"]
 
-    main_blk_attrs_MA = None
-    SA_blk_attrs_MA = None
-    main_blk_Uncer_MA = None
-    SA_blk_Uncer_MA = None
+    main_attrs_MA = None
+    SA_attrs_MA = None
+    main_Uncer_MA = None
+    SA_Uncer_MA = None
 
     MA_vectors = [
-        main_blk_attrs_MA,
-        SA_blk_attrs_MA,
-        main_blk_Uncer_MA,
-        SA_blk_Uncer_MA,
+        main_attrs_MA,
+        SA_attrs_MA,
+        main_Uncer_MA,
+        SA_Uncer_MA,
     ]
 
     while (

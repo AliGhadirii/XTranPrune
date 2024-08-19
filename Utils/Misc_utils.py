@@ -104,15 +104,62 @@ class Logger(object):
 def get_stat(tensor):
     if isinstance(tensor, np.ndarray):
         tensor = torch.from_numpy(tensor)
-    return [
-        torch.min(tensor).item(),
-        torch.quantile(tensor, 0.25).item(),
-        torch.quantile(tensor, 0.5).item(),
-        torch.quantile(tensor, 0.75).item(),
-        torch.max(tensor).item(),
-        torch.mean(tensor).item(),
-        torch.std(tensor).item(),
-    ]
+    return {
+        "min": torch.min(tensor).item(),
+        "Q1": torch.quantile(tensor, 0.25).item(),
+        "Q2": torch.quantile(tensor, 0.5).item(),
+        "Q3": torch.quantile(tensor, 0.75).item(),
+        "max": torch.max(tensor).item(),
+        "mean": torch.mean(tensor).item(),
+        "std": torch.std(tensor).item(),
+    }
+
+
+def preprocess_matrix(
+    matrix, clip_threshold=1e-6, log_transform=True, normalize=True, min_max_scale=True
+):
+    # Initialize a placeholder for the preprocessed matrix with the same shape
+    preprocessed_matrix = torch.zeros_like(
+        matrix,
+        dtype=matrix.dtype,
+        device=matrix.device,
+    )
+
+    # Iterate through each block and each head
+    for b in range(matrix.shape[0]):  # For each block
+        for h in range(matrix.shape[1]):  # For each head
+            # Extract the current matrix (197x197) for this block and head
+            current_matrix = matrix[b, h]
+
+            # 1. Clipping
+            if clip_threshold is not None:
+                current_matrix = torch.clamp(current_matrix, min=clip_threshold)
+
+            # 2. Log Transformation
+            if log_transform:
+                current_matrix = torch.log1p(
+                    current_matrix
+                )  # Use log1p to handle log(0) issues
+
+            # 3. Normalize the weights so that each row sums up to 1
+            if normalize:
+                row_sums = current_matrix.sum(dim=1, keepdim=True)
+                # Protect against division by zero
+                row_sums[row_sums == 0] = 1
+                current_matrix = current_matrix / row_sums
+
+            # 4. Min-Max Scaling to [0, 1] range
+            if min_max_scale:
+                min_val, max_val = current_matrix.min(), current_matrix.max()
+                if max_val - min_val != 0:  # Avoid division by zero
+                    current_matrix = (current_matrix - min_val) / (max_val - min_val)
+                else:
+                    current_matrix = torch.zeros_like(current_matrix)
+
+            # Store the preprocessed matrix back into the placeholder
+            preprocessed_matrix[b, h] = current_matrix
+
+    return preprocessed_matrix
 
 
 def get_mask_idx(tensor, rate):

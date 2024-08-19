@@ -2,7 +2,7 @@ seed: 42
 root_image_dir: /home/ali/Datasets/Fitz17k/Images/
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
 dataset_name: Fitz17k                 # ["Fitz17k", "HIBA", "PAD"]
-output_folder_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune/New_DL/XTranPrune_MA_Uncertain/RR80_PR40_B20_PR/
+output_folder_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune/New_DL/XTranPrune_MA_Uncertain/Pagerank/RR80_PR40_B20_PR_BA_Outflow/
 num_workers: 1
 train:
   branch: main                        # ["main", "SA"]
@@ -30,12 +30,12 @@ prune:
   beta1: 0.2
   beta2: 0.2
   cont_method: transformer_attribution                # ["transformer_attribution", "attr", "grad", "attn", "TAM", AttrRoll", "FTaylor", "FTaylorpow2"]
-  method: MA_Uncertainty                                          # ['normal', 'MA', 'MA_Uncertainty']
+  method: normal                                          # ['normal', 'MA', 'MA_Uncertainty']
   FObjective:                              # [MinDiff, MinJSD_Diff]
   MaskUpdate_Type: "AND"                              # ["AND", "LAST"]
   apply_pagerank: True                               # [True, False]                 
   edge_type: attention_weights                        # ['attention_weights', 'gradients']
-  aggr_type: combined                                 # ['outflow', 'inflow', 'combined']
+  aggr_type: outflow                                 # ['outflow', 'inflow', 'combined']
   PR_alpha: 0.85                                      # parameter Alpha used in the PageRank algorithm
   verbose: 2                                          # [0, 1, 2] (more details as the number grows)
   

@@ -18,66 +18,6 @@ from Explainability.ViT_Explainer import Explainer
 from Evaluation import eval_model
 
 
-def get_hooked_matrices(model, dataloader, blk_mat_type, device, config):
-
-    DL_iter = iter(dataloader)
-
-    num_tokens = model.patch_embed.num_patches + 1
-    blk_mat_shape = (
-        model.depth,
-        model.num_heads,
-        num_tokens,
-        num_tokens,
-    )
-
-    blk_mat_iter = torch.zeros(blk_mat_shape).to(device)
-
-    for itr in tqdm(
-        range(config["prune"]["num_batch_per_iter"]),
-        total=config["prune"]["num_batch_per_iter"],
-        desc="Iterating over batches",
-    ):
-
-        try:
-            batch = next(DL_iter)
-        except StopIteration:
-            DL_iter = iter(dataloader)
-            batch = next(DL_iter)
-
-        inputs = batch["image"].to(device)
-        output = model(inputs)
-
-        if blk_mat_type == "attention_weights":
-            blk_mat_batch = (
-                torch.stack(
-                    [
-                        model.blocks[block_idx].attn.get_attn_map().mean(dim=0)
-                        for block_idx in range(model.depth)
-                    ],
-                    dim=0,
-                )
-                .detach()
-                .cpu()
-            )
-
-        elif blk_mat_type == "gradients":
-            blk_mat_batch = (
-                torch.stack(
-                    [
-                        model.blocks[block_idx].attn.get_attn_gradients().mean(dim=0)
-                        for block_idx in range(model.depth)
-                    ],
-                    dim=0,
-                )
-                .detach()
-                .cpu()
-            )
-        blk_mat_iter = blk_mat_iter + blk_mat_batch
-
-    blk_mat_iter = blk_mat_iter / config["prune"]["num_batch_per_iter"]
-    return blk_mat_iter
-
-
 def get_attr_score(explainer, dataloader, blk_attrs_shape, device, config):
     """
     Calculate the attribute scores for each block in the input images.
