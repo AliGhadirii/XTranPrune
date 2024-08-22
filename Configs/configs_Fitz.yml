@@ -2,7 +2,7 @@ seed: 42
 root_image_dir: /home/ali/Datasets/Fitz17k/Images/
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
 dataset_name: Fitz17k                 # ["Fitz17k", "HIBA", "PAD"]
-output_folder_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune/New_DL/XTranPrune_MA_Uncertain/Pagerank/RR80_PR40_B20_PR_BA_Outflow/
+output_folder_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune/New_DL/XTranPrune_MA_Uncertain/Pagerank/BW_Outflow/RR80_PR40_B20/
 num_workers: 1
 train:
   branch: main                        # ["main", "SA"]
@@ -21,7 +21,6 @@ prune:
   - fitzpatrick
   sampler_type: CustomStratified                    # ["WeightedRandom", "Stratified", "CustomStratified"]
   target_bias_metric: EOM
-  bias_metric_prev: 0.628
   max_consecutive_no_improvement: 7
   batch_size: 6
   num_batch_per_iter: 333
@@ -30,9 +29,10 @@ prune:
   beta1: 0.2
   beta2: 0.2
   cont_method: transformer_attribution                # ["transformer_attribution", "attr", "grad", "attn", "TAM", AttrRoll", "FTaylor", "FTaylorpow2"]
-  method: normal                                          # ['normal', 'MA', 'MA_Uncertainty']
+  method: MA_Uncertainty                                          # ['normal', 'MA', 'MA_Uncertainty']
   FObjective:                              # [MinDiff, MinJSD_Diff]
-  MaskUpdate_Type: "AND"                              # ["AND", "LAST"]
+  MaskUpdate_Type: AND                              # ["AND", "LAST"]
+  BlockAgnosticMask: False                             # [True, False]  
   apply_pagerank: True                               # [True, False]                 
   edge_type: attention_weights                        # ['attention_weights', 'gradients']
   aggr_type: outflow                                 # ['outflow', 'inflow', 'combined']

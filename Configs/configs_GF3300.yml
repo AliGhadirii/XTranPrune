@@ -3,13 +3,13 @@ root_image_dir: /home/ali/Datasets/Harvard-GF3300/
 train_csv_path: /home/ali/Datasets/Harvard-GF3300/train.csv
 val_csv_path: /home/ali/Datasets/Harvard-GF3300/test.csv
 dataset_name: GF3300                 # ["GF3300"]
-output_folder_path: /home/ali/Outputs/GF3300/debug/
+output_folder_path: /home/ali/Outputs/GF3300/XTranPrune_age_binary/MA_U_PR/RR80_PR40_B30_BLKWI/
 num_workers: 1
 train:
   branch: main                        # ["main", "SA"]
   batch_size: 64
   main_level: glaucoma                    # [glaucoma]
-  SA_level: gender_binary        # [age_binary, age_multi, gender_binary, race_binary]
+  SA_level: age_binary        # [age_binary, age_multi, gender_binary, race_binary]
   n_epochs: 55
   pretrained: True                                     # [True, False]
 # eval:
@@ -19,21 +19,21 @@ prune:
   SA_br_path: /home/ali/Outputs/GF3300/SABranchBaseline_gender_binary/DiT_S_label=gender_binary_BEST_F1.pth
   sampler_type: CustomStratified                    # ["WeightedRandom", "Stratified", "CustomStratified"]
   target_bias_metric: EOM
-  bias_metric_prev: 0.898
   max_consecutive_no_improvement: 7
   batch_size: 4
   num_batch_per_iter: 100
   main_mask_retain_rate: 0.8
   pruning_rate: 0.4
-  beta1: 0.2
-  beta2: 0.2
+  beta1: 0.3
+  beta2: 0.3
   cont_method: transformer_attribution                # ["transformer_attribution", "attr", "grad", "attn", "TAM", AttrRoll", "FTaylor", "FTaylorpow2"]
   method: MA_Uncertainty                                           # ['normal', 'MA', 'MA_Uncertainty']
   FObjective:                                  # [MinDiff, MinJSD_Diff]
-  MaskUpdate_Type: "AND"                              # ["AND", "LAST"]
+  MaskUpdate_Type: AND                              # ["AND", "LAST"]
+  BlockAgnosticMask: False                             # [True, False]  
   apply_pagerank: True                               # [True, False]                 
   edge_type: attention_weights                        # ['attention_weights', 'gradients']
-  aggr_type: combined                                 # ['outflow', 'inflow', 'combined']
+  aggr_type: outflow                                 # ['outflow', 'inflow', 'combined']
   PR_alpha: 0.85                                      # parameter Alpha used in the PageRank algorithm
   verbose: 2                                          # [0, 1, 2] (more details as the number grows)
   

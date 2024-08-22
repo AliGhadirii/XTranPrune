@@ -483,24 +483,15 @@ def run_pagerank(node_attr, attention_weights, model, config):
             # Distribute based on a combination of attention weights for inflow and outflow
             for i in range(num_tokens):
                 for j in range(num_tokens):
-                    outflow_contrib = (
-                        token_attr[:, :, i] * attention_weights[:, :, i, j]
-                    )
-                    inflow_contrib = token_attr[:, :, j] * attention_weights[:, :, i, j]
-                    node_attr_scores[:, :, i, j] = (
-                        outflow_contrib + inflow_contrib
-                    ) / attention_weights[:, :, i, j].sum(-1, keepdim=True).clamp(
-                        min=1e-10
-                    )
-                    # # Normalize outflow and inflow contributions before combining
-                    # outflow_contrib = (
-                    #     outflow_contrib / attention_weights[:, :, i, :].sum(-1, keepdim=True).clamp(min=1e-10)
-                    # )
-                    # inflow_contrib = (
-                    #     inflow_contrib / attention_weights[:, :, :, j].sum(-2, keepdim=True).clamp(min=1e-10)
-                    # )
+                    # Normalize outflow and inflow contributions before combining
+                    outflow_contrib = outflow_contrib / attention_weights[
+                        :, :, i, :
+                    ].sum(-1, keepdim=True).clamp(min=1e-10)
+                    inflow_contrib = inflow_contrib / attention_weights[:, :, :, j].sum(
+                        -2, keepdim=True
+                    ).clamp(min=1e-10)
 
-                    # node_attr_scores[:, :, i, j] = outflow_contrib + inflow_contrib
+                    node_attr_scores[:, :, i, j] = outflow_contrib + inflow_contrib
         else:
             raise ValueError(
                 "Invalid method. Choose 'outflow', 'inflow', or 'combined'."
@@ -634,7 +625,7 @@ def XTranPrune(
         # print(
         #     "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
         # )
-        
+
         print("NODE PAGERANK SCORES (ATTR): Before Pagerank ...")
         for i in range(main_attrs.shape[0]):
             for j in range(main_attrs.shape[1]):
@@ -741,16 +732,16 @@ def XTranPrune(
 
     ###############################  Generating the pruning mask ###############################
 
-    # if config["prune"]["apply_pagerank"]:
-    print("Generating the pruning mask (block-agnostic) ...")
-    main_mask, prun_mask = generate_pruning_mask_block_agnostic(
-        main_attrs_final, SA_attrs_final, prun_iter_cnt
-    )
-    # else:
-    # print("Generating the pruning mask...")
-    # main_mask, prun_mask = generate_pruning_mask(
-    #     main_attrs_final, SA_attrs_final, prun_iter_cnt
-    # )
+    if config["prune"]["BlockAgnosticMask"]:
+        print("Generating the pruning mask (block-agnostic) ...")
+        main_mask, prun_mask = generate_pruning_mask_block_agnostic(
+            main_attrs_final, SA_attrs_final, prun_iter_cnt
+        )
+    else:
+        print("Generating the pruning mask...")
+        main_mask, prun_mask = generate_pruning_mask(
+            main_attrs_final, SA_attrs_final, prun_iter_cnt
+        )
 
     torch.save(
         main_mask,
@@ -915,7 +906,10 @@ def main(config, args):
 
     prun_iter_cnt = 0
     consecutive_no_improvement = 0
-    best_bias_metric = config["prune"]["bias_metric_prev"]
+    best_bias_metric = val_metrics[config["prune"]["target_bias_metric"]]
+    print(
+        f"Baseline selected bias metric: {config['prune']['target_bias_metric']} = {best_bias_metric}"
+    )
 
     main_attrs_MA = None
     SA_attrs_MA = None
@@ -1062,6 +1056,12 @@ def main(config, args):
             "negative_new",
             config,
         )
+
+        if (val_metrics_df.iloc[0]["F1_Mac"] - val_metrics_df.iloc[-1]["F1_Mac"]) > 4:
+            print(
+                "F1_Mac decreased by more than 6% from the initial value, Stopping..."
+            )
+            break
 
 
 if __name__ == "__main__":
