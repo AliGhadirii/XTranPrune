@@ -34,6 +34,7 @@ prune:
   apply_pagerank: True                               # [True, False]                 
   edge_type: attention_weights                        # ['attention_weights', 'gradients']
   aggr_type: outflow                                 # ['outflow', 'inflow', 'combined']
+  redistribution_type: original_ratio             # ['attention_weights', 'original_ratio']
   PR_alpha: 0.85                                      # parameter Alpha used in the PageRank algorithm
   verbose: 2                                          # [0, 1, 2] (more details as the number grows)
   
