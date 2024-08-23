@@ -469,12 +469,6 @@ def run_pagerank(node_attr, attention_weights, model, config):
         if attention_weights is None and ratios is None:
             raise ValueError("Either attention_weights or ratios must be provided.")
 
-        if attention_weights.ndimension() != 4 or attention_weights.size(
-            2
-        ) != attention_weights.size(3):
-            raise ValueError(
-                "attention_weights must have shape (num_blocks, num_heads, num_tokens, num_tokens)"
-            )
         assert method in [
             "outflow",
             "inflow",
@@ -655,26 +649,26 @@ def XTranPrune(
 
         print("Graphs built successfully. Running PageRank...")
 
-        print("NODE PAGERANK SCORES (ATTR): Before preprocessing ...")
+        # print("NODE PAGERANK SCORES (ATTR): Before preprocessing ...")
 
-        for i in range(main_attrs.shape[0]):
-            for j in range(main_attrs.shape[1]):
-                print(get_stat(main_attrs[i][j]))
+        # for i in range(main_attrs.shape[0]):
+        #     for j in range(main_attrs.shape[1]):
+        #         print(get_stat(main_attrs[i][j]))
 
-        main_attrs = preprocess_matrix(
-            main_attrs,
-            clip_threshold=1e-6,
-            log_transform=True,
-            normalize=True,
-            min_max_scale=False,
-        )
-        SA_attrs = preprocess_matrix(
-            SA_attrs,
-            clip_threshold=1e-6,
-            log_transform=True,
-            normalize=True,
-            min_max_scale=False,
-        )
+        # main_attrs = preprocess_matrix(
+        #     main_attrs,
+        #     clip_threshold=1e-6,
+        #     log_transform=True,
+        #     normalize=True,
+        #     min_max_scale=False,
+        # )
+        # SA_attrs = preprocess_matrix(
+        #     SA_attrs,
+        #     clip_threshold=1e-6,
+        #     log_transform=True,
+        #     normalize=True,
+        #     min_max_scale=False,
+        # )
 
         # print("NODE PAGERANK SCORES (ATTR): After preprocessing ...")
         # for i in range(main_attrs.shape[0]):
@@ -823,7 +817,7 @@ def XTranPrune(
 
     main_model.set_attn_pruning_mask(prun_mask, config["prune"]["MaskUpdate_Type"])
 
-    if verbose > 0 and prev_mask is not None:
+    if prev_mask is not None:
         new_mask = main_model.get_attn_pruning_mask()
         num_total_nodes_pruned = (new_mask == 0).sum()
         num_new_nodes_pruned = ((new_mask == 0) & (prev_mask == 1)).sum()
@@ -843,7 +837,35 @@ def XTranPrune(
         print(f"New nodes unpruned: {num_new_nodes_unpruned.item()}")
         print(f"Old nodes unpruned: {num_old_nodes_unpruned.item()}")
 
-    return main_model, MA_vectors
+        prune_stat = {
+            "Total_pruned": num_total_nodes_pruned.item(),
+            "New_pruned": num_new_nodes_pruned.item(),
+            "Old_pruned": num_old_nodes_pruned.item(),
+            "Total_unpruned": num_total_nodes_unpruned.item(),
+            "New_unpruned": num_new_nodes_unpruned.item(),
+            "Old_unpruned": num_old_nodes_unpruned.item(),
+        }
+    else:
+        new_mask = main_model.get_attn_pruning_mask()
+        num_total_nodes_pruned = (new_mask == 0).sum()
+
+        num_total_nodes_unpruned = (new_mask == 1).sum()
+
+        print()
+        print("Pruning Statistics:")
+        print(f"Total nodes pruned: {num_total_nodes_pruned.item()}")
+        print(f"Total nodes unpruned: {num_total_nodes_unpruned.item()}")
+
+        prune_stat = {
+            "Total_pruned": num_total_nodes_pruned.item(),
+            "New_pruned": None,
+            "Old_pruned": None,
+            "Total_unpruned": num_total_nodes_unpruned.item(),
+            "New_unpruned": None,
+            "Old_unpruned": None,
+        }
+
+    return main_model, MA_vectors, prune_stat
 
 
 def main(config, args):
@@ -958,7 +980,16 @@ def main(config, args):
     )
 
     val_metrics_df = pd.DataFrame([val_metrics])
-
+    prune_stat_df = pd.DataFrame(
+        columns=[
+            "Total_pruned",
+            "New_pruned",
+            "Old_pruned",
+            "Total_unpruned",
+            "New_unpruned",
+            "Old_unpruned",
+        ]
+    )
     print("Validation metrics using the original model:")
     pprint(val_metrics)
     print()
@@ -994,7 +1025,7 @@ def main(config, args):
         model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt+1}"
 
         if prun_iter_cnt == 0:
-            pruned_model, MA_vectors = XTranPrune(
+            pruned_model, MA_vectors, prune_stat = XTranPrune(
                 main_model=main_model,
                 SA_model=SA_model,
                 dataloader=dataloaders["train"],
@@ -1005,7 +1036,7 @@ def main(config, args):
                 prun_iter_cnt=prun_iter_cnt,
             )
         else:
-            pruned_model, MA_vectors = XTranPrune(
+            pruned_model, MA_vectors, prune_stat = XTranPrune(
                 main_model=pruned_model,
                 SA_model=SA_model,
                 dataloader=dataloaders["train"],
@@ -1114,6 +1145,18 @@ def main(config, args):
             ["EOpp0_new", "EOpp1_new", "EOdd_new"],
             "negative_new",
             config,
+        )
+
+        prune_stat_df = pd.concat(
+            [prune_stat_df, pd.DataFrame([prune_stat])], ignore_index=True
+        )
+        prune_stat_df.to_csv(
+            os.path.join(config["output_folder_path"], f"Pruning_Statistics.csv"),
+            index=False,
+        )
+
+        plot_metrics(
+            prune_stat_df, ["Total_pruned", "New_pruned", "Old_pruned"], "PS", config
         )
 
         if (val_metrics_df.iloc[0]["F1_Mac"] - val_metrics_df.iloc[-1]["F1_Mac"]) > 4:

@@ -2,7 +2,7 @@ seed: 42
 root_image_dir: /home/ali/Datasets/Fitz17k/Images/
 Generated_csv_path: /home/ali/Datasets/Fitz17k/fitzpatrick17k_preprocessed.csv
 dataset_name: Fitz17k                 # ["Fitz17k", "HIBA", "PAD"]
-output_folder_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune/New_DL/XTranPrune_MA_Uncertain/Pagerank/BA_Outflow/RRf80_PR20_B30_Process_attrs/
+output_folder_path: /home/ali/Outputs/Fitzpatrick17k/XTranPrune/New_DL/XTranPrune_MA_Uncertain/Pagerank/BA_Outflow/RRf80_PR20_B20_ratio/
 num_workers: 1
 train:
   branch: main                        # ["main", "SA"]
@@ -26,8 +26,8 @@ prune:
   num_batch_per_iter: 333
   main_mask_retain_rate: 0.8
   pruning_rate: 0.2
-  beta1: 0.3
-  beta2: 0.3
+  beta1: 0.2
+  beta2: 0.2
   cont_method: transformer_attribution                # ["transformer_attribution", "attr", "grad", "attn", "TAM", AttrRoll", "FTaylor", "FTaylorpow2"]
   method: MA_Uncertainty                                          # ['normal', 'MA', 'MA_Uncertainty']
   FObjective:                              # [MinDiff, MinJSD_Diff]
