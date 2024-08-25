@@ -838,17 +838,16 @@ def XTranPrune(
         print(f"Old nodes unpruned: {num_old_nodes_unpruned.item()}")
 
         prune_stat = {
-            "Total_pruned": num_total_nodes_pruned.item(),
-            "New_pruned": num_new_nodes_pruned.item(),
-            "Old_pruned": num_old_nodes_pruned.item(),
-            "Total_unpruned": num_total_nodes_unpruned.item(),
-            "New_unpruned": num_new_nodes_unpruned.item(),
-            "Old_unpruned": num_old_nodes_unpruned.item(),
+            "Total_pruned": int(num_total_nodes_pruned.item()),
+            "New_pruned": int(num_new_nodes_pruned.item()),
+            "Old_pruned": int(num_old_nodes_pruned.item()),
+            "Total_unpruned": int(num_total_nodes_unpruned.item()),
+            "New_unpruned": int(num_new_nodes_unpruned.item()),
+            "Old_unpruned": int(num_old_nodes_unpruned.item()),
         }
     else:
         new_mask = main_model.get_attn_pruning_mask()
         num_total_nodes_pruned = (new_mask == 0).sum()
-
         num_total_nodes_unpruned = (new_mask == 1).sum()
 
         print()
@@ -857,10 +856,10 @@ def XTranPrune(
         print(f"Total nodes unpruned: {num_total_nodes_unpruned.item()}")
 
         prune_stat = {
-            "Total_pruned": num_total_nodes_pruned.item(),
+            "Total_pruned": int(num_total_nodes_pruned.item()),
             "New_pruned": None,
             "Old_pruned": None,
-            "Total_unpruned": num_total_nodes_unpruned.item(),
+            "Total_unpruned": int(num_total_nodes_unpruned.item()),
             "New_unpruned": None,
             "Old_unpruned": None,
         }

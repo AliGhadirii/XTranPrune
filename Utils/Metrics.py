@@ -738,7 +738,7 @@ def plot_metrics(df, selected_metrics, postfix, config):
             config["output_folder_path"], f"DeiT_S_LRP_pruning_metrics_{postfix}.png"
         )
     )
-    plt.close()
+    # plt.close()
 
 
 def plot_metrics_training(train_df, val_df, selected_metrics, postfix, config):
