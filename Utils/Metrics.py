@@ -716,7 +716,7 @@ def plot_metrics(df, selected_metrics, postfix, config):
         # Add annotation for each valid point
         for i in range(len(iteration_points)):
             plt.annotate(
-                f"{metric_points[i]:.3f}",
+                f"{metric_points[i]}",
                 (iteration_points[i], metric_points[i]),
                 textcoords="offset points",
                 xytext=(0, 5),
