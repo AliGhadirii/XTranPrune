@@ -116,7 +116,13 @@ def get_stat(tensor):
 
 
 def preprocess_matrix(
-    matrix, clip_threshold=1e-6, log_transform=True, normalize=True, min_max_scale=True
+    matrix,
+    clip_threshold=None,
+    log_transform=False,
+    normalize=False,
+    min_max_scale=False,
+    sum_normalize=False,
+    global_normalize=False,
 ):
     # Initialize a placeholder for the preprocessed matrix with the same shape
     preprocessed_matrix = torch.zeros_like(
@@ -156,8 +162,19 @@ def preprocess_matrix(
                 else:
                     current_matrix = torch.zeros_like(current_matrix)
 
+            if sum_normalize:
+                total_sum = current_matrix.sum()
+                if total_sum != 0:
+                    current_matrix /= total_sum
+
             # Store the preprocessed matrix back into the placeholder
             preprocessed_matrix[b, h] = current_matrix
+
+    # Global normalization across all heads and blocks
+    if global_normalize:
+        total_sum = preprocessed_matrix.sum()
+        if total_sum != 0:
+            preprocessed_matrix /= total_sum
 
     return preprocessed_matrix
 

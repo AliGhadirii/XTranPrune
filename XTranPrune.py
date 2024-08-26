@@ -318,6 +318,22 @@ def generate_pruning_mask_block_agnostic(
         main_attrs_final.shape[2],
     )
 
+    print("QQQ1")
+    for b in range(num_blocks):
+        for h in range(num_heads):
+            print(f"Block {b+1}, Head {h+1}")
+            print(get_stat(main_attrs_final[b][h]))
+            print()
+    print()
+
+    print("QQQ2")
+    for b in range(num_blocks):
+        for h in range(num_heads):
+            print(f"Block {b+1}, Head {h+1}")
+            print(get_stat(SA_attrs_final[b][h]))
+            print()
+    print()
+
     # Generating the main mask
     main_attrs_flt = main_attrs_final.flatten()
 
@@ -332,10 +348,22 @@ def generate_pruning_mask_block_agnostic(
     SA_attrs_flt = SA_attrs_final.flatten()
     can_be_pruned = SA_attrs_flt * main_mask
 
+    print("QQQ3")
+    temp = can_be_pruned.reshape((num_blocks, num_heads, num_tokens, num_tokens))
+    for b in range(num_blocks):
+        for h in range(num_heads):
+            print(f"Block {b+1}, Head {h+1}")
+            print(get_stat(temp[b][h]))
+            print()
+    print()
+
     # Pruning Pruning_rate% of the paramters allowed by the main branch to be pruned
     k = int(config["prune"]["pruning_rate"] * main_mask.sum())
 
     top_k_values, top_k_indices = torch.topk(can_be_pruned, k)
+    print("QQQ4")
+    print(top_k_indices)
+    print()
     prun_mask = torch.ones_like(can_be_pruned)
     prun_mask[top_k_indices] = 0
 
@@ -364,6 +392,8 @@ def generate_pruning_mask_block_agnostic(
 
 
 def run_pagerank(node_attr, attention_weights, model, config):
+
+    # node_attr = torch.ones(12, 6, 197, 197).to(attention_weights.device) / 197
 
     node_attr_copy = node_attr
 
@@ -408,6 +438,8 @@ def run_pagerank(node_attr, attention_weights, model, config):
     token_attr, ratios = aggregate_attr_scores(
         node_attr, method=config["prune"]["aggr_type"]
     )
+
+    # token_attr = torch.ones(12, 6, 197).to(attention_weights.device) / 197
 
     if token_attr.ndimension() != 3 or token_attr.size(2) != 197:
         raise ValueError(
@@ -575,6 +607,7 @@ def XTranPrune(
     MA_vectors=None,
 ):
     required_matrices = ["attr"]
+    # required_matrices = []
 
     if config["prune"]["apply_pagerank"]:
         if config["prune"]["edge_type"] == "attention_weights":
@@ -594,6 +627,7 @@ def XTranPrune(
     )
 
     main_attrs, SA_attrs = matrices["attr"]
+    # main_attrs, SA_attrs = None, None
 
     if config["prune"]["apply_pagerank"]:
 
@@ -679,14 +713,17 @@ def XTranPrune(
         #     "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
         # )
 
-        print("NODE PAGERANK SCORES (ATTR): Before Pagerank ...")
-        for i in range(main_attrs.shape[0]):
-            for j in range(main_attrs.shape[1]):
-                print(get_stat(main_attrs[i][j]))
-
-        print(
-            "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
-        )
+        # print("Main: NODE PAGERANK SCORES (ATTR): Before Pagerank ...")
+        # for i in range(main_attrs.shape[0]):
+        #     for j in range(main_attrs.shape[1]):
+        #         print(get_stat(main_attrs[i][j]))
+        # print("SA: NODE PAGERANK SCORES (ATTR): Before Pagerank ...")
+        # for i in range(SA_attrs.shape[0]):
+        #     for j in range(SA_attrs.shape[1]):
+        #         print(get_stat(SA_attrs[i][j]))
+        # print(
+        #     "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+        # )
 
         main_attrs = run_pagerank(
             node_attr=main_attrs,
@@ -701,10 +738,17 @@ def XTranPrune(
             config=config,
         )
 
-        print("NODE PAGERANK SCORES (ATTR): After running Pagerank ...")
+        print("Main NODE PAGERANK SCORES (ATTR): After running Pagerank ...")
         for i in range(main_attrs.shape[0]):
             for j in range(main_attrs.shape[1]):
                 print(get_stat(main_attrs[i][j]))
+        print("SA NODE PAGERANK SCORES (ATTR): After running Pagerank ...")
+        for i in range(SA_attrs.shape[0]):
+            for j in range(SA_attrs.shape[1]):
+                print(get_stat(SA_attrs[i][j]))
+        print(
+            "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+        )
 
     torch.save(
         main_attrs,

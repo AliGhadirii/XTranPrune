@@ -504,6 +504,205 @@ def run_pagerank(node_attr, attention_weights, model, config):
     return node_attr
 
 
+def run_pagerank_BlockWise(node_attr, attention_weights, model, config):
+
+    node_attr_copy = node_attr
+
+    def aggregate_attr_scores(attr, method="combined"):
+        if attr.ndimension() != 4 or attr.size(2) != attr.size(3):
+            raise ValueError(
+                "attr must have shape (num_blocks, num_heads, num_tokens, num_tokens)"
+            )
+        assert method in [
+            "outflow",
+            "inflow",
+            "combined",
+        ], "Invalid method. Choose 'outflow', 'inflow', or 'combined'."
+
+        if method == "outflow":
+            # Sum across rows to get outflow scores
+            row_sums = torch.sum(attr, dim=-1, keepdim=True)
+            ratios = attr / row_sums.clamp(min=1e-10)  # Avoid division by zero
+            token_attr_scores = row_sums.squeeze(-1)
+            return token_attr_scores, ratios
+
+        elif method == "inflow":
+            # Sum across columns to get inflow scores
+            column_sums = torch.sum(attr, dim=-2, keepdim=True)
+            ratios = attr / column_sums.clamp(min=1e-10)  # Avoid division by zero
+            token_attr_scores = column_sums.squeeze(-2)
+            return token_attr_scores, ratios
+
+        elif method == "combined":
+            # Sum across both rows and columns for combined scores
+            outflow_token_attr_scores = torch.sum(attr, dim=-1)
+            inflow_token_attr_scores = torch.sum(attr, dim=-2)
+            combined_ratios_outflow = attr / torch.sum(
+                attr, dim=-1, keepdim=True
+            ).clamp(min=1e-10)
+            combined_ratios_inflow = attr / torch.sum(attr, dim=-2, keepdim=True).clamp(
+                min=1e-10
+            )
+            token_attr_scores = outflow_token_attr_scores + inflow_token_attr_scores
+            return token_attr_scores, combined_ratios_outflow, combined_ratios_inflow
+
+    token_attr, ratios = aggregate_attr_scores(
+        node_attr, method=config["prune"]["aggr_type"]
+    )
+
+    if token_attr.ndimension() != 3 or token_attr.size(2) != 197:
+        raise ValueError(
+            "token_attr must have shape (num_blocks, num_heads, num_tokens) and num_tokens must be 197"
+        )
+
+    num_blocks, num_heads, num_tokens = token_attr.size()
+
+    pagerank_tensor = torch.zeros((num_blocks, num_heads, num_tokens)).to(
+        node_attr.device
+    )
+
+    for block_idx in range(num_blocks):
+        for head_idx in range(num_heads):
+            attribution_vector = token_attr[block_idx, head_idx, :]
+
+            total_sum = torch.sum(attribution_vector).item()
+            if total_sum == 0:
+                raise ValueError(
+                    "Sum of attribution scores in a subgraph cannot be zero."
+                )
+            normalized_vector = attribution_vector / total_sum
+
+            subgraph_nodes = [
+                tuple([block_idx, head_idx, token_idx])
+                for token_idx in range(num_tokens)
+            ]
+            initial_values = {
+                node: normalized_vector[i].item()
+                for i, node in enumerate(subgraph_nodes)
+            }
+
+            subgraph = model.graph.subgraph(subgraph_nodes)
+
+            assert sorted(list(subgraph.nodes)) == sorted(
+                list(initial_values.keys())
+            ), "Nodes mismatch"
+
+            pagerank_scores = nx.pagerank(
+                subgraph,
+                alpha=config["prune"]["PR_alpha"],
+                nstart=initial_values,
+                max_iter=int(1e07),
+                tol=1e-06,
+                weight="weight",
+            )
+
+            for node, score in pagerank_scores.items():
+                block_idx, head_idx, token_idx = node
+                pagerank_tensor[block_idx, head_idx, token_idx] = score
+
+    def reverse_aggregate_attr_scores(
+        token_attr, attention_weights=None, ratios=None, method="combined"
+    ):
+        num_blocks, num_heads, num_tokens = token_attr.shape
+
+        if attention_weights is None and ratios is None:
+            raise ValueError("Either attention_weights or ratios must be provided.")
+
+        assert method in [
+            "outflow",
+            "inflow",
+            "combined",
+        ], "Invalid method. Choose 'outflow', 'inflow', or 'combined'."
+
+        node_attr_scores = torch.zeros(
+            num_blocks,
+            num_heads,
+            num_tokens,
+            num_tokens,
+            dtype=token_attr.dtype,
+            device=token_attr.device,
+        )
+
+        if ratios is not None:
+            if method == "outflow":
+                # Use the stored ratios to distribute token attribution scores across rows
+                for i in range(num_tokens):
+                    node_attr_scores[:, :, i, :] = (
+                        token_attr[:, :, i].unsqueeze(-1) * ratios[:, :, i, :]
+                    )
+
+            elif method == "inflow":
+                # Use the stored ratios to distribute token attribution scores across columns
+                for j in range(num_tokens):
+                    node_attr_scores[:, :, :, j] = (
+                        token_attr[:, :, j].unsqueeze(-1) * ratios[:, :, :, j]
+                    )
+
+            elif method == "combined":
+                combined_ratios_outflow, combined_ratios_inflow = ratios
+                for i in range(num_tokens):
+                    for j in range(num_tokens):
+                        outflow_contrib = (
+                            token_attr[:, :, i] * combined_ratios_outflow[:, :, i, j]
+                        )
+                        inflow_contrib = (
+                            token_attr[:, :, j] * combined_ratios_inflow[:, :, i, j]
+                        )
+                        node_attr_scores[:, :, i, j] = outflow_contrib + inflow_contrib
+
+        else:  # Use attention_weights
+            if method == "outflow":
+                # Use attention weights to distribute token attribution scores across rows
+                for i in range(num_tokens):
+                    node_attr_scores[:, :, i, :] = (
+                        token_attr[:, :, i].unsqueeze(-1)
+                        * attention_weights[:, :, i, :]
+                    )
+            elif method == "inflow":
+                # Use attention weights to distribute token attribution scores across columns
+                for j in range(num_tokens):
+                    node_attr_scores[:, :, :, j] = (
+                        token_attr[:, :, j].unsqueeze(-1)
+                        * attention_weights[:, :, :, j]
+                    )
+            elif method == "combined":
+                # Distribute based on a combination of attention weights for inflow and outflow
+                for i in range(num_tokens):
+                    for j in range(num_tokens):
+                        # Normalize outflow and inflow contributions before combining
+                        outflow_contrib = outflow_contrib / attention_weights[
+                            :, :, i, :
+                        ].sum(-1, keepdim=True).clamp(min=1e-10)
+                        inflow_contrib = inflow_contrib / attention_weights[
+                            :, :, :, j
+                        ].sum(-2, keepdim=True).clamp(min=1e-10)
+
+                        node_attr_scores[:, :, i, j] = outflow_contrib + inflow_contrib
+
+        return node_attr_scores
+
+    if config["prune"]["redistribution_type"] == "attention_weights":
+        node_attr = reverse_aggregate_attr_scores(
+            token_attr=pagerank_tensor,
+            attention_weights=attention_weights,
+            method=config["prune"]["aggr_type"],
+        )
+    elif config["prune"]["redistribution_type"] == "original_ratio":
+        node_attr = reverse_aggregate_attr_scores(
+            token_attr=pagerank_tensor,
+            ratios=ratios,
+            method=config["prune"]["aggr_type"],
+        )
+    else:
+        raise ValueError("Invalid redistribution type.")
+
+    print(
+        f"pagerank input == pagerank output: {torch.equal(node_attr, node_attr_copy)}"
+    )
+
+    return node_attr
+
+
 def generate_pruning_mask(main_attrs_final, disc_main_attrs_final, verbose=2):
     performance_mask = []
     prun_mask = []
