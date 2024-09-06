@@ -2,15 +2,17 @@
 Hacked together by / Copyright 2020 Ross Wightman
 """
 
+import os
 import torch
 import torch.nn as nn
 from einops import rearrange
-import numpy as np
+import networkx as nx
+from tqdm import tqdm
 
 from .layers_ours import *
-from .helpers import load_pretrained
 from .weight_init import trunc_normal_
 from .layer_helpers import to_2tuple
+from Utils.Misc_utils import get_stat
 
 
 def _cfg(url="", **kwargs):
@@ -408,7 +410,87 @@ class VisionTransformer(nn.Module):
 
         self.inp_grad = None
         self.ig = None
-        self.gradients = None
+        self.graph = None
+        self.edge_type = None
+
+    def build_graph(
+        self,
+        edge_weights,
+        branch="main",
+        edge_type="attention_weights",
+        prun_iter_cnt=None,
+        output_folder_path="",
+    ):
+
+        assert edge_type in [
+            "attention_weights",
+            "gradients",
+        ], "Invalid edge_type. Choose from 'attention_weights', or 'gradients'"
+
+        self.edge_type = edge_type
+        num_blocks = len(self.blocks)
+        num_heads = self.num_heads
+        num_tokens = 197  # Typically 196 patches + 1 class token
+
+        graph_file_path = os.path.join(
+            output_folder_path,
+            f"VTGraph_B{num_blocks}_H{num_heads}_T197_B({branch})_E({edge_type})_PIter({prun_iter_cnt}).graphml",
+        )
+
+        # Check if the graph already exists
+        if os.path.exists(graph_file_path):
+            self.graph = nx.read_graphml(graph_file_path)
+            print(f"Loaded graph from {graph_file_path}")
+            return
+
+        G = nx.DiGraph()  # Directed graph to match the flow in the transformer
+
+        total_iterations = (
+            num_blocks * num_heads * num_tokens * num_tokens
+            + (num_blocks - 1) * num_heads * num_tokens
+        )
+
+        with tqdm(total=total_iterations, desc=f"Building the {branch} Graph") as pbar:
+            # Step 1: Create nodes and intra-block edges for each head in each block
+            for block_idx in range(num_blocks):
+                for head_idx in range(num_heads):
+                    # Add nodes
+                    nodes = [
+                        (block_idx, head_idx, token_idx)
+                        for token_idx in range(num_tokens)
+                    ]
+                    G.add_nodes_from(nodes)
+
+                    # Add intra-block edges using adjacency matrix
+                    for i in range(num_tokens):
+                        for j in range(num_tokens):
+                            G.add_edge(
+                                nodes[i],
+                                nodes[j],
+                                weight=edge_weights[block_idx, head_idx, i, j],
+                            )
+                            pbar.update(1)
+
+            # Step 2: Add inter-block edges to connect corresponding tokens across blocks
+            for block_idx in range(num_blocks - 1):
+                for head_idx in range(num_heads):
+                    for token_idx in range(num_tokens):
+                        current_node = (block_idx, head_idx, token_idx)
+                        next_node = (block_idx + 1, head_idx, token_idx)
+                        G.add_edge(
+                            current_node, next_node, weight=1.0
+                        )  # uniform weight for inter-block connections
+                        pbar.update(1)
+
+        # Save the graph to file
+        if len(output_folder_path) > 0:
+            nx.write_graphml(G, graph_file_path)
+            print(f"Saved graph to {graph_file_path}")
+
+        self.graph = G
+
+    def get_graph(self):
+        return self.graph
 
     def set_add_hook(self):
         self.add_hook = True
@@ -462,12 +544,6 @@ class VisionTransformer(nn.Module):
 
     def get_ig(self):
         return self.ig
-
-    def save_gradients(self, gradients):
-        self.gradients = gradients
-
-    def get_gradients(self):
-        return self.gradients
 
     def forward(self, x):
         B = x.shape[0]
@@ -718,17 +794,13 @@ def deit_small_patch16_224(
         print("Pre-trained weights on ImageNet loaded...")
     elif weight_path is not None:
         checkpoint = torch.load(weight_path, map_location=device)
-        if "model" in checkpoint:
-            model = checkpoint["model"]
-            if model.add_hook == False and add_hook:
-                model.set_add_hook()
-            print(f"The whole model object loaded from {weight_path}")
-        elif "model_state_dict" in checkpoint:
+
+        if "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])
             print(f"Weights loaded from {weight_path} from the state_dict")
         else:
             print(
-                "No weights loaded due to bad checkpoint format, using random weights..."
+                'Couldn\'t find "model_state_dict" in the given checkpoint. No weights loaded, using random weights...'
             )
     else:
         print("No weights loaded, using random weights...")

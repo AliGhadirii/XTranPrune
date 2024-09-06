@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pandas as pd
 from sklearn.metrics import (
     confusion_matrix,
     precision_recall_curve,
@@ -694,15 +695,33 @@ def plot_metrics(df, selected_metrics, postfix, config):
     - df (pd.DataFrame): Dataframe containing metrics for each iteration.
     - selected_metrics (list of str): List of metric names to include in the plot.
     """
-    iterations = list(range(1, len(df) + 1))
+    if postfix == "PS":
+        iterations = list(range(1, len(df) + 1))
+    else:
+        iterations = list(range(len(df)))
     plt.figure(figsize=(len(df), len(df) * 0.6))
 
     for metric in selected_metrics:
-        plt.plot(iterations, df[metric], label=metric)
-        for i, txt in enumerate(df[metric]):
+        iteration_points = []
+        metric_points = []
+
+        # Gather only non-None points
+        for i in range(len(df)):
+            if pd.notna(df[metric][i]):
+                iteration_points.append(iterations[i])
+                metric_points.append(df[metric][i])
+
+        plt.plot(iteration_points, metric_points, marker="o", label=metric)
+
+        # Add annotation for each valid point
+        for i in range(len(iteration_points)):
             plt.annotate(
-                f"{txt:.3f}",
-                (iterations[i], df[metric][i]),
+                (
+                    f"{metric_points[i]}"
+                    if type(metric_points[i]) == int
+                    else f"{metric_points[i]:.3f}"
+                ),
+                (iteration_points[i], metric_points[i]),
                 textcoords="offset points",
                 xytext=(0, 5),
                 ha="center",
@@ -717,6 +736,7 @@ def plot_metrics(df, selected_metrics, postfix, config):
     plt.yticks(fontsize=12)
     plt.grid(True)
 
+    os.makedirs(config["output_folder_path"], exist_ok=True)
     plt.savefig(
         os.path.join(
             config["output_folder_path"], f"DeiT_S_LRP_pruning_metrics_{postfix}.png"
