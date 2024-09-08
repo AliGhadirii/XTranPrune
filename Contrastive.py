@@ -980,13 +980,17 @@ def Contrastive(
     )
 
     if config["prune"]["FObjective"] == "MinJSD_Diff":
-        jsd = torch.ones(S0_attrs.shape[0], S0_attrs.shape[1]).to(device)
+        S0_attrs_normalized = S0_attrs / S0_attrs.sum(dim=(-2, -1), keepdim=True)
+        S1_attrs_normalized = S1_attrs / S1_attrs.sum(dim=(-2, -1), keepdim=True)
+        jsd = torch.ones(S0_attrs_normalized.shape[0], S0_attrs_normalized.shape[1]).to(
+            device
+        )
         for encoder_idx in range(jsd.shape[0]):
             for head_idx in range(jsd.shape[1]):
 
                 # Get the attention masks for the current head and encoder
-                P = S0_attrs[encoder_idx, head_idx, :, :]
-                Q = S1_attrs[encoder_idx, head_idx, :, :]
+                P = S0_attrs_normalized[encoder_idx, head_idx, :, :]
+                Q = S1_attrs_normalized[encoder_idx, head_idx, :, :]
 
                 # Calculate JSD and store in the result tensor
                 jsd_value = js_divergence(P, Q)
