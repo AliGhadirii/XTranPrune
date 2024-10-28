@@ -3,7 +3,9 @@ pyyaml
 tqdm
 numpy
 pandas
+matplotlib
 scikit-image
 scikit-learn
 einops
 opencv-python
+networkx
