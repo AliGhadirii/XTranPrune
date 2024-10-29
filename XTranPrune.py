@@ -391,211 +391,6 @@ def generate_pruning_mask_block_agnostic(
     return main_mask, prun_mask
 
 
-def run_pagerank(node_attr, attention_weights, model, config):
-
-    # node_attr = torch.ones(12, 6, 197, 197).to(attention_weights.device) / 197
-
-    node_attr_copy = node_attr
-
-    def aggregate_attr_scores(attr, method="combined"):
-        if attr.ndimension() != 4 or attr.size(2) != attr.size(3):
-            raise ValueError(
-                "attr must have shape (num_blocks, num_heads, num_tokens, num_tokens)"
-            )
-        assert method in [
-            "outflow",
-            "inflow",
-            "combined",
-        ], "Invalid method. Choose 'outflow', 'inflow', or 'combined'."
-
-        if method == "outflow":
-            # Sum across rows to get outflow scores
-            row_sums = torch.sum(attr, dim=-1, keepdim=True)
-            ratios = attr / row_sums.clamp(min=1e-10)  # Avoid division by zero
-            token_attr_scores = row_sums.squeeze(-1)
-            return token_attr_scores, ratios
-
-        elif method == "inflow":
-            # Sum across columns to get inflow scores
-            column_sums = torch.sum(attr, dim=-2, keepdim=True)
-            ratios = attr / column_sums.clamp(min=1e-10)  # Avoid division by zero
-            token_attr_scores = column_sums.squeeze(-2)
-            return token_attr_scores, ratios
-
-        elif method == "combined":
-            # Sum across both rows and columns for combined scores
-            outflow_token_attr_scores = torch.sum(attr, dim=-1)
-            inflow_token_attr_scores = torch.sum(attr, dim=-2)
-            combined_ratios_outflow = attr / torch.sum(
-                attr, dim=-1, keepdim=True
-            ).clamp(min=1e-10)
-            combined_ratios_inflow = attr / torch.sum(attr, dim=-2, keepdim=True).clamp(
-                min=1e-10
-            )
-            token_attr_scores = outflow_token_attr_scores + inflow_token_attr_scores
-            return token_attr_scores, combined_ratios_outflow, combined_ratios_inflow
-
-    token_attr, ratios = aggregate_attr_scores(
-        node_attr, method=config["prune"]["aggr_type"]
-    )
-
-    # token_attr = torch.ones(12, 6, 197).to(attention_weights.device) / 197
-
-    if token_attr.ndimension() != 3 or token_attr.size(2) != 197:
-        raise ValueError(
-            "token_attr must have shape (num_blocks, num_heads, num_tokens) and num_tokens must be 197"
-        )
-
-    num_blocks, num_heads, num_tokens = token_attr.size()
-
-    # Initialize the personalization vector for each node in the graph
-    initial_values = {}
-
-    for block_idx in range(num_blocks):
-        for head_idx in range(num_heads):
-            attribution_vector = token_attr[block_idx, head_idx, :]
-
-            # Normalize the subgraph attribution scores to sum to 1
-            total_sum = torch.sum(attribution_vector).item()
-            if total_sum == 0:
-                raise ValueError(
-                    "Sum of attribution scores in a subgraph cannot be zero."
-                )
-
-            normalized_vector = attribution_vector / total_sum
-
-            # Assign normalized values to the corresponding nodes
-            subgraph_nodes = [
-                tuple([block_idx, head_idx, token_idx])
-                for token_idx in range(num_tokens)
-            ]
-            for node, attr_value in zip(subgraph_nodes, normalized_vector):
-                initial_values[node] = attr_value.item()
-
-    assert list(model.graph.nodes) == list(initial_values.keys()), "Nodes mismatch"
-
-    # Run PageRank with the initial vector
-    pagerank_scores = nx.pagerank(
-        model.get_graph(),
-        alpha=config["prune"]["PR_alpha"],
-        nstart=initial_values,
-        max_iter=int(1e07),
-        tol=1e-06,
-        weight="weight",
-    )
-
-    pagerank_tensor = torch.zeros((num_blocks, num_heads, num_tokens)).to(
-        node_attr.device
-    )
-
-    # Populate the tensor with the PageRank scores
-    for node, score in pagerank_scores.items():
-        block_idx, head_idx, token_idx = node
-        pagerank_tensor[block_idx, head_idx, token_idx] = score
-
-    def reverse_aggregate_attr_scores(
-        token_attr, attention_weights=None, ratios=None, method="combined"
-    ):
-        num_blocks, num_heads, num_tokens = token_attr.shape
-
-        if attention_weights is None and ratios is None:
-            raise ValueError("Either attention_weights or ratios must be provided.")
-
-        assert method in [
-            "outflow",
-            "inflow",
-            "combined",
-        ], "Invalid method. Choose 'outflow', 'inflow', or 'combined'."
-
-        node_attr_scores = torch.zeros(
-            num_blocks,
-            num_heads,
-            num_tokens,
-            num_tokens,
-            dtype=token_attr.dtype,
-            device=token_attr.device,
-        )
-
-        if ratios is not None:
-            if method == "outflow":
-                # Use the stored ratios to distribute token attribution scores across rows
-                for i in range(num_tokens):
-                    node_attr_scores[:, :, i, :] = (
-                        token_attr[:, :, i].unsqueeze(-1) * ratios[:, :, i, :]
-                    )
-
-            elif method == "inflow":
-                # Use the stored ratios to distribute token attribution scores across columns
-                for j in range(num_tokens):
-                    node_attr_scores[:, :, :, j] = (
-                        token_attr[:, :, j].unsqueeze(-1) * ratios[:, :, :, j]
-                    )
-
-            elif method == "combined":
-                combined_ratios_outflow, combined_ratios_inflow = ratios
-                for i in range(num_tokens):
-                    for j in range(num_tokens):
-                        outflow_contrib = (
-                            token_attr[:, :, i] * combined_ratios_outflow[:, :, i, j]
-                        )
-                        inflow_contrib = (
-                            token_attr[:, :, j] * combined_ratios_inflow[:, :, i, j]
-                        )
-                        node_attr_scores[:, :, i, j] = outflow_contrib + inflow_contrib
-
-        else:  # Use attention_weights
-            if method == "outflow":
-                # Use attention weights to distribute token attribution scores across rows
-                for i in range(num_tokens):
-                    node_attr_scores[:, :, i, :] = (
-                        token_attr[:, :, i].unsqueeze(-1)
-                        * attention_weights[:, :, i, :]
-                    )
-            elif method == "inflow":
-                # Use attention weights to distribute token attribution scores across columns
-                for j in range(num_tokens):
-                    node_attr_scores[:, :, :, j] = (
-                        token_attr[:, :, j].unsqueeze(-1)
-                        * attention_weights[:, :, :, j]
-                    )
-            elif method == "combined":
-                # Distribute based on a combination of attention weights for inflow and outflow
-                for i in range(num_tokens):
-                    for j in range(num_tokens):
-                        # Normalize outflow and inflow contributions before combining
-                        outflow_contrib = outflow_contrib / attention_weights[
-                            :, :, i, :
-                        ].sum(-1, keepdim=True).clamp(min=1e-10)
-                        inflow_contrib = inflow_contrib / attention_weights[
-                            :, :, :, j
-                        ].sum(-2, keepdim=True).clamp(min=1e-10)
-
-                        node_attr_scores[:, :, i, j] = outflow_contrib + inflow_contrib
-
-        return node_attr_scores
-
-    if config["prune"]["redistribution_type"] == "attention_weights":
-        node_attr = reverse_aggregate_attr_scores(
-            token_attr=pagerank_tensor,
-            attention_weights=attention_weights,
-            method=config["prune"]["aggr_type"],
-        )
-    elif config["prune"]["redistribution_type"] == "original_ratio":
-        node_attr = reverse_aggregate_attr_scores(
-            token_attr=pagerank_tensor,
-            ratios=ratios,
-            method=config["prune"]["aggr_type"],
-        )
-    else:
-        raise ValueError("Invalid redistribution type.")
-
-    print(
-        f"pagerank input == pagerank output: {torch.equal(node_attr, node_attr_copy)}"
-    )
-
-    return node_attr
-
-
 def XTranPrune(
     main_model,
     SA_model,
@@ -604,18 +399,8 @@ def XTranPrune(
     config,
     prun_iter_cnt,
     verbose=2,
-    MA_vectors=None,
 ):
     required_matrices = ["attr"]
-    # required_matrices = []
-
-    if config["prune"]["apply_pagerank"]:
-        if config["prune"]["edge_type"] == "attention_weights":
-            required_matrices.append("attn")
-        elif config["prune"]["edge_type"] == "gradients":
-            required_matrices.append("grad")
-        else:
-            raise ValueError("Invalid edge type.")
 
     matrices = get_required_matrices(
         main_model=main_model,
@@ -627,128 +412,6 @@ def XTranPrune(
     )
 
     main_attrs, SA_attrs = matrices["attr"]
-    # main_attrs, SA_attrs = None, None
-
-    if config["prune"]["apply_pagerank"]:
-
-        if config["prune"]["edge_type"] == "attention_weights":
-            main_edge_weights, SA_edge_weights = matrices["attn"]
-        elif config["prune"]["edge_type"] == "gradients":
-            main_edge_weights, SA_edge_weights = matrices["grad"]
-
-        print("EDGE WEIGHTS: Before preprocessing ...")
-        for i in range(main_edge_weights.shape[0]):
-            for j in range(main_edge_weights.shape[1]):
-                print(get_stat(main_edge_weights[i][j]))
-
-        print("Preprocessing the edge weights...")
-        main_edge_weights = preprocess_matrix(
-            main_edge_weights,
-            clip_threshold=1e-6,
-            log_transform=True,
-            normalize=True,
-            min_max_scale=True,
-        )
-        SA_edge_weights = preprocess_matrix(
-            SA_edge_weights,
-            clip_threshold=1e-6,
-            log_transform=True,
-            normalize=True,
-            min_max_scale=True,
-        )
-
-        print("EDGE WEIGHTS: After preprocessing ...")
-        for i in range(main_edge_weights.shape[0]):
-            for j in range(main_edge_weights.shape[1]):
-                print(get_stat(main_edge_weights[i][j]))
-        print(
-            "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
-        )
-
-        print("Building the graphs...")
-        main_model.build_graph(
-            edge_weights=main_edge_weights.cpu().numpy(),
-            branch="main",
-            edge_type=config["prune"]["edge_type"],
-            prun_iter_cnt=prun_iter_cnt + 1,
-            # output_folder_path=config["output_folder_path"],
-        )
-        SA_model.build_graph(
-            edge_weights=SA_edge_weights.cpu().numpy(),
-            branch="SA",
-            edge_type=config["prune"]["edge_type"],
-            prun_iter_cnt=prun_iter_cnt + 1,
-            # output_folder_path=config["output_folder_path"],
-        )
-
-        print("Graphs built successfully. Running PageRank...")
-
-        # print("NODE PAGERANK SCORES (ATTR): Before preprocessing ...")
-
-        # for i in range(main_attrs.shape[0]):
-        #     for j in range(main_attrs.shape[1]):
-        #         print(get_stat(main_attrs[i][j]))
-
-        # main_attrs = preprocess_matrix(
-        #     main_attrs,
-        #     clip_threshold=1e-6,
-        #     log_transform=True,
-        #     normalize=True,
-        #     min_max_scale=False,
-        # )
-        # SA_attrs = preprocess_matrix(
-        #     SA_attrs,
-        #     clip_threshold=1e-6,
-        #     log_transform=True,
-        #     normalize=True,
-        #     min_max_scale=False,
-        # )
-
-        # print("NODE PAGERANK SCORES (ATTR): After preprocessing ...")
-        # for i in range(main_attrs.shape[0]):
-        #     for j in range(main_attrs.shape[1]):
-        #         print(get_stat(main_attrs[i][j]))
-
-        # print(
-        #     "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
-        # )
-
-        # print("Main: NODE PAGERANK SCORES (ATTR): Before Pagerank ...")
-        # for i in range(main_attrs.shape[0]):
-        #     for j in range(main_attrs.shape[1]):
-        #         print(get_stat(main_attrs[i][j]))
-        # print("SA: NODE PAGERANK SCORES (ATTR): Before Pagerank ...")
-        # for i in range(SA_attrs.shape[0]):
-        #     for j in range(SA_attrs.shape[1]):
-        #         print(get_stat(SA_attrs[i][j]))
-        # print(
-        #     "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
-        # )
-
-        main_attrs = run_pagerank(
-            node_attr=main_attrs,
-            attention_weights=main_edge_weights,
-            model=main_model,
-            config=config,
-        )
-        SA_attrs = run_pagerank(
-            node_attr=SA_attrs,
-            attention_weights=SA_edge_weights,
-            model=SA_model,
-            config=config,
-        )
-
-        print("Main NODE PAGERANK SCORES (ATTR): After running Pagerank ...")
-        for i in range(main_attrs.shape[0]):
-            for j in range(main_attrs.shape[1]):
-                print(get_stat(main_attrs[i][j]))
-        print("SA NODE PAGERANK SCORES (ATTR): After running Pagerank ...")
-        for i in range(SA_attrs.shape[0]):
-            for j in range(SA_attrs.shape[1]):
-                print(get_stat(SA_attrs[i][j]))
-        print(
-            "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
-        )
 
     torch.save(
         main_attrs,
@@ -851,7 +514,7 @@ def XTranPrune(
             "Old_unpruned": None,
         }
 
-    return main_model, MA_vectors, prune_stat
+    return main_model, prune_stat
 
 
 def main(config, args):
@@ -987,18 +650,6 @@ def main(config, args):
         f"Baseline selected bias metric: {config['prune']['target_bias_metric']} = {best_bias_metric}"
     )
 
-    main_attrs_MA = None
-    SA_attrs_MA = None
-    main_Uncer_MA = None
-    SA_Uncer_MA = None
-
-    MA_vectors = [
-        main_attrs_MA,
-        SA_attrs_MA,
-        main_Uncer_MA,
-        SA_Uncer_MA,
-    ]
-
     while (
         consecutive_no_improvement <= config["prune"]["max_consecutive_no_improvement"]
     ):
@@ -1011,25 +662,23 @@ def main(config, args):
         model_name = f"DeiT_S_LRP_PIter{prun_iter_cnt+1}"
 
         if prun_iter_cnt == 0:
-            pruned_model, MA_vectors, prune_stat = XTranPrune(
+            pruned_model, prune_stat = XTranPrune(
                 main_model=main_model,
                 SA_model=SA_model,
                 dataloader=dataloaders["train"],
                 device=device,
                 verbose=config["prune"]["verbose"],
                 config=config,
-                MA_vectors=MA_vectors,
                 prun_iter_cnt=prun_iter_cnt,
             )
         else:
-            pruned_model, MA_vectors, prune_stat = XTranPrune(
+            pruned_model, prune_stat = XTranPrune(
                 main_model=pruned_model,
                 SA_model=SA_model,
                 dataloader=dataloaders["train"],
                 device=device,
                 verbose=config["prune"]["verbose"],
                 config=config,
-                MA_vectors=MA_vectors,
                 prun_iter_cnt=prun_iter_cnt,
             )
 
