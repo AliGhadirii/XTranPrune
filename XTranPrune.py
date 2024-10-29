@@ -767,65 +767,8 @@ def XTranPrune(
         ),
     )
 
-    # getting the moving average of attribution vectors and measuing the uncertainty
-    if config["prune"]["method"] == "MA":
-
-        main_attrs_MA = MA_vectors[0]
-        SA_attrs_MA = MA_vectors[1]
-
-        if main_attrs_MA == None:
-            main_attrs_MA = torch.zeros_like(main_attrs)
-        if SA_attrs_MA == None:
-            SA_attrs_MA = torch.zeros_like(SA_attrs)
-
-        beta1 = config["prune"]["beta1"]
-        main_attrs_MA = beta1 * main_attrs_MA + (1 - beta1) * main_attrs
-        SA_attrs_MA = beta1 * SA_attrs_MA + (1 - beta1) * SA_attrs
-
-        MA_vectors[0] = main_attrs_MA
-        MA_vectors[1] = SA_attrs_MA
-
-        main_attrs_final = main_attrs_MA
-        SA_attrs_final = SA_attrs_MA
-    elif config["prune"]["method"] == "MA_Uncertainty":
-        main_attrs_MA = MA_vectors[0]
-        SA_attrs_MA = MA_vectors[1]
-        main_Uncer_MA = MA_vectors[2]
-        SA_Uncer_MA = MA_vectors[3]
-
-        if main_attrs_MA == None:
-            main_attrs_MA = torch.zeros_like(main_attrs)
-        if SA_attrs_MA == None:
-            SA_attrs_MA = torch.zeros_like(SA_attrs)
-        if main_Uncer_MA == None:
-            main_Uncer_MA = torch.zeros_like(main_attrs)
-        if SA_Uncer_MA == None:
-            SA_Uncer_MA = torch.zeros_like(SA_attrs)
-
-        beta1 = config["prune"]["beta1"]
-        main_attrs_MA = beta1 * main_attrs_MA + (1 - beta1) * main_attrs
-        SA_attrs_MA = beta1 * SA_attrs_MA + (1 - beta1) * SA_attrs
-
-        beta2 = config["prune"]["beta2"]
-        main_Uncer_MA = (
-            beta2 * main_Uncer_MA + (1 - beta2) * (main_attrs - main_attrs_MA).abs()
-        )
-        SA_Uncer_MA = beta2 * SA_Uncer_MA + (1 - beta2) * (SA_attrs - SA_attrs_MA).abs()
-
-        MA_vectors[0] = main_attrs_MA
-        MA_vectors[1] = SA_attrs_MA
-        MA_vectors[2] = main_Uncer_MA
-        MA_vectors[3] = SA_Uncer_MA
-
-        SA_Uncer_MA_flt = SA_Uncer_MA.view(SA_Uncer_MA.size(0), SA_Uncer_MA.size(1), -1)
-        SA_Uncer_MA_max_values, _ = SA_Uncer_MA_flt.max(dim=2, keepdim=True)
-        SA_Uncer_MA_max_values = SA_Uncer_MA_max_values.unsqueeze(2)
-
-        main_attrs_final = main_attrs_MA * main_Uncer_MA
-        SA_attrs_final = SA_attrs_MA * (SA_Uncer_MA_max_values - SA_Uncer_MA)
-    else:
-        main_attrs_final = main_attrs
-        SA_attrs_final = SA_attrs
+    main_attrs_final = main_attrs
+    SA_attrs_final = SA_attrs
 
     ###############################  Generating the pruning mask ###############################
 

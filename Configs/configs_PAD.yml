@@ -30,17 +30,8 @@ prune:
   num_batch_per_iter: 333
   main_mask_retain_rate: 0.8
   pruning_rate: 0.4
-  beta1: 0.4
-  beta2: 0.4
   cont_method: transformer_attribution                # ["transformer_attribution", "attr", "grad", "attn", "TAM", AttrRoll", "FTaylor", "FTaylorpow2"]
-  method: MA_Uncertainty                                          # ['normal', 'MA', 'MA_Uncertainty']
-  FObjective: MinJSD_Diff                             # [MinDiff, MinJSD_Diff]
   MaskUpdate_Type: AND                              # ["AND", "LAST"]
   BlockAgnosticMask: False                             # [True, False]  
-  apply_pagerank: True                               # [True, False]                 
-  edge_type: attention_weights                        # ['attention_weights', 'gradients']
-  aggr_type: outflow                                 # ['outflow', 'inflow', 'combined']
-  PR_alpha: 0.85                                      # parameter Alpha used in the PageRank algorithm
-  redistribution_type: original_ratio             # ['attention_weights', 'original_ratio']
   verbose: 2                                          # [0, 1, 2] (more details as the number grows)
   
